@@ -23,32 +23,72 @@ The US Naval Research Laboratory Date: 21 Aug 2020"""
 from os import environ
 from timeit import default_timer as timer
 
+import matplotlib.pyplot as plt
 from numba import jit, prange
 import numpy as np
-
+import time
 RADEG = 180.0/np.pi
 DEGRAD = np.pi/180.0
 
 
 
 class SphericalRadon:
-  def __init__(self, image=None, imageDim=None, nTheta=180, nPhi=180):
+  def __init__(self, image=None, imageDim=None,
+               nTheta=90, nPhi=180,
+               thetaRange =  [45,135],
+               phiRange = [-90, 90], # [-45,45],
+               vendor='EDAX'):
     self.nTheta = nTheta
-    self.nPhi = nRho
-    
+    self.nPhi = nPhi
+    self.thetaRange = np.array(thetaRange)
+    self.phiRange = np.array(phiRange)
+
     self.indexPlan = None
+
+    self.vendor = vendor
+
     if (image is None) and (imageDim is None):
       self.theta = None
-      self.rho = None
+      self.phi = None
       self.imDim = None
+
     else:
       if image is not None:
         self.imDim = np.asarray(image.shape[-2:])
       else:
         self.imDim = np.asarray(imageDim[-2:])
-      self.radon_plan_setup(imageDim=self.imDim, nTheta=self.nTheta, nRho=self.nRho, rhoMax=self.rhoMax)
+      self.radon_plan_setup(imageDim=self.imDim, nTheta=self.nTheta, nPhi=self.nPhi,
+                            thetaRange = self.thetaRange,phiRange= self.phiRange)
 
-  def radon_plan_setup(self, image=None, imageDim=None, nTheta=None, nRho=None, rhoMax=None):
+
+  def set_theta_range(self, PC=[0.5, 0.5, 0.5]):
+    # function that will look at the pattern center(s) and make a decision on the range of
+    # theta values to use.  It will also set (nTheta) so that it matches the angular resolution of
+    # phi.  
+    pc_px = self.convert_pc_detector(PC)
+    pcx = np.max(pc_px[:, 0])
+    pcy = np.max(pc_px[:, 1])
+    pcz = np.min(pc_px[:, 2])
+    nX = np.float32(self.imDim[1])
+    nY = np.float32(self.imDim[0])
+
+    thetas = np.array([pcx**2 + pcy**2,
+                       (nX-pcx)**2 + pcy**2,
+                       (nX-pcx)**2 + (nY-pcy)**2,
+                       pcx**2 + (nY-pcy)**2])
+
+    thetas = np.sqrt(thetas)
+    thetas /= pcz
+    thetas = 90 - np.degrees(np.arctan(thetas))
+    trange = np.array([np.floor(thetas.min()), np.ceil(180 - thetas.min())])
+
+    self.thetaRange = trange
+    dphi = (np.max(self.phiRange) - np.min(self.phiRange)) / self.nPhi
+    self.nTheta = np.round((np.max(self.thetaRange) - np.min(self.thetaRange)) * dphi).astype(np.int64)
+    #print(dphi, self.nTheta)
+    self.radon_plan_setup(imageDim=self.imDim)
+
+  def radon_plan_setup(self, image=None, imageDim=None, nTheta=None, nPhi=None, thetaRange = None,phiRange= None):
     if (image is None) and (imageDim is not None):
       imDim = np.asarray(imageDim, dtype=np.int64)
     elif (image is not None):
@@ -58,134 +98,116 @@ class SphericalRadon:
     imDim = np.asarray(imDim)
     self.imDim = imDim
     if (nTheta is not None) : self.nTheta = nTheta
-    if (nRho is not None): self.nRho = nRho
-    #self.rhoMax = rhoMax if (rhoMax is not None) else np.round(np.linalg.norm(imDim)*0.5)
-    self.rhoMax = rhoMax if (rhoMax is not None) else (np.linalg.norm(imDim) * 0.5)
+    if (nPhi is not None): self.nPhi = nPhi
+    if (thetaRange is not None) : self.thetaRange = np.array(thetaRange)
+    if (phiRange is not None): self.phiRange = np.array(phiRange)
 
-    deltaRho = float(2 * self.rhoMax) / (self.nRho)
-    self.theta = np.arange(self.nTheta, dtype = np.float32)*180.0/self.nTheta
-    self.rho = np.arange(self.nRho, dtype = np.float32)*deltaRho - (self.rhoMax-deltaRho)
+    self.theta = np.arange(self.nTheta, dtype = np.float32)*(self.thetaRange.max()-self.thetaRange.min())/self.nTheta
+    self.theta += self.thetaRange.min()
+    self.phi = np.arange(self.nPhi, dtype=np.float32) * (
+          self.phiRange.max() - self.phiRange.min()) / self.nPhi
+    self.phi += self.phiRange.min()
 
-    xmin = -1.0*(self.imDim[1]-1)*0.5
-    ymin = -1.0*(self.imDim[0]-1)*0.5
-    #xmin = -1.0 * (self.imDim[1]) * 0.5
-    #ymin = -1.0 * (self.imDim[0]) * 0.5
+    #define an array of spherical points, here denoted as hkl (this is in the refernce frame, not crystal frame).
 
-    #self.radon = np.zeros([self.nRho, self.nTheta])
-    sTheta = np.sin(self.theta*DEGRAD)
-    cTheta = np.cos(self.theta*DEGRAD)
-    thetatest = np.abs(sTheta) >= (np.sqrt(2.) * 0.5)
+    self.hkl = np.zeros((self.nTheta, self.nPhi, 3), dtype=np.float32)
+    self.hkl[:, :, 0] = np.sin(np.radians(self.theta)).reshape(self.nTheta, 1)
+    self.hkl[:, :, 1] = np.sin(np.radians(self.theta)).reshape(self.nTheta, 1)
+    self.hkl[:, :, 2] = np.cos(np.radians(self.theta)).reshape(self.nTheta, 1)
 
-    m = np.arange(self.imDim[1], dtype = np.uint32) # x values
-    n = np.arange(self.imDim[0], dtype = np.uint32) # y values
-
-    a = -1.0*np.where(thetatest == 1, cTheta, sTheta)
-    a /= np.where(thetatest == 1, sTheta, cTheta)
-    b = xmin*cTheta + ymin*sTheta
-
-    outofbounds = self.imDim[0]*self.imDim[1]+1
-    self.indexPlan = np.zeros([self.nRho,self.nTheta,self.imDim.max()],dtype=np.uint64)+outofbounds
-
-    for i in np.arange(self.nTheta):
-      b1 = self.rho - b[i]
-      if thetatest[i]:
-        b1 /= sTheta[i]
-        b1 = b1.reshape(self.nRho, 1)
-        #indx_y = np.floor(a[i]*m+b1).astype(np.int64)
-        indx_y = np.round(a[i] * m + b1).astype(np.int64)
-        indx_y = np.where(indx_y < 0, outofbounds, indx_y)
-        indx_y = np.where(indx_y >= self.imDim[0], outofbounds, indx_y)
-        #indx_y = np.clip(indx_y, 0, self.imDim[1])
-        indx1D = np.clip(m+self.imDim[1]*indx_y, 0, outofbounds)
-        self.indexPlan[:,i, 0:self.imDim[1]] = indx1D
-      else:
-        b1 /= cTheta[i]
-        b1 = b1.reshape(self.nRho, 1)
-        #if cTheta[i] > 0:
-          #indx_x = np.floor(a[i]*n + b1).astype(np.int64)
-        #else:
-          #indx_x = np.ceil(a[i] * n + b1).astype(np.int64)
-        indx_x = np.round(a[i] * n + b1).astype(np.int64)
-        indx_x = np.where(indx_x < 0, outofbounds, indx_x)
-        indx_x = np.where(indx_x >= self.imDim[1], outofbounds, indx_x)
-        indx1D = np.clip(indx_x+self.imDim[1]*n, 0, outofbounds)
-        self.indexPlan[:, i, 0:self.imDim[0]] = indx1D
-      self.indexPlan.sort(axis = -1)
+    self.hkl[:, :, 0] *= np.cos(np.radians(self.phi))
+    self.hkl[:, :, 1] *= np.sin(np.radians(self.phi))
 
 
-  def radon_fast(self, imageIn, padding = np.array([0,0]), fixArtifacts = False, background = None):
+  def convert_pc_detector(self, pc):
+    # Helper function to convert vendors PC values to pixels on the detector.  This assumes that the detector image
+    # origin is in the upper left corner.
+    ven = str.upper(self.vendor)
+    nX = np.float32( self.imDim[1] )
+    nY = np.float32( self.imDim[0] )
+
+    pctemp = np.atleast_2d(pc)
+    pc_px = np.zeros((pctemp.shape[0], 3), dtype=np.float32)
+
+    if ven in ['EDAX', 'OXFORD']:
+      pc_px[:,0] = nX * pctemp[:,0]
+      pc_px[:, 1] = nY - nX * pctemp[:, 1]
+      pc_px[:, 2] = nX*pctemp[:, 2]
+    if ven in ['KIKUCHIPY', 'BRUKER']:
+      pc_px[:, 0] = nX * pctemp[:, 0]
+      pc_px[:, 1] = nY  * pctemp[:, 1]
+      pc_px[:, 2] = nY * pctemp[:, 2]
+
+    if ven in ['EMSoft']:
+      pc_px[:, 0] = nX*0.5 + pctemp[:, 0]
+      pc_px[:, 1] = nY - (nY * 0.5 + pctemp[:, 1])
+      pc_px[:, 2] = pctemp[:,2]/pctemp[:,3]
+    return pc_px
+
+  def radon_fast(self, imageIn, PC = [0.5, 0.5, 0.5],  padding = np.array([0,0]), fixArtifacts = False, background = None):
+    #plt.isinteractive()
     tic = timer()
     shapeIm = np.shape(imageIn)
+    pctemp = np.atleast_2d(np.asarray(PC, dtype= np.float32))
+
     if imageIn.ndim == 2:
-      nIm = 1
-      image = imageIn[np.newaxis, : ,:]
       reform = True
+      image = imageIn[np.newaxis, : ,:]
     else:
-      nIm = shapeIm[0]
       reform = False
+      image = imageIn
 
-    if background is None:
-      image = imageIn.reshape(-1)
-    else:
-      image = imageIn - background
-      image = image.reshape(-1)
+    nIm = image.shape[0]
+    nPC = np.atleast_2d(PC).shape[0]
+    pc_px = self.convert_pc_detector(pctemp)
 
-    nPx = shapeIm[-1]*shapeIm[-2]
-    im = np.zeros(nPx+1, dtype=np.float32)
+    if nPC < nIm:
+      pc_px = np.tile(pc_px[0,:], nIm).reshape(nIm,3)
+
+    if background is not None:
+      image = imageIn - np.atleast_3d(background)
+
+
+    nX = shapeIm[-1]
+    nY = shapeIm[-2]
+
     #radon = np.zeros([nIm, self.nRho, self.nTheta], dtype=np.float32)
-    radon = np.zeros([nIm,self.nRho + 2 * padding[0],self.nTheta + 2 * padding[1]],dtype=np.float32)
+    radon = np.zeros([self.nTheta + 2 * padding[0],self.nPhi + 2 * padding[1], nIm],dtype=np.float32)
     shpRdn = radon.shape
-    norm = np.sum(self.indexPlan < nPx, axis = 2 ) + 1.0e-12
-    for i in np.arange(nIm):
-      im[:-1] = image[i,:,:].flatten()
-      radon[i, padding[0]:shpRdn[1]-padding[0], padding[1]:shpRdn[2]-padding[1]] = np.sum(im.take(self.indexPlan.astype(np.int64)), axis=2) / norm
 
-    if (fixArtifacts == True):
-      radon[:,:,0] = radon[:,:,1]
-      radon[:,:,-1] = radon[:,:,-2]
+    xythresh = np.pi/4.0
+    x = np.arange(nX, dtype = np.int64)
+    y = np.arange(nY, dtype = np.int64)
 
-    radon = np.transpose(radon, [1,2,0]).copy()
+    for i in np.arange(self.nTheta):
+      for j in np.arange(self.nPhi):
 
+        h = self.hkl[i,j,0]
+        k = self.hkl[i,j,1]
+        l = self.hkl[i,j,2]
+        if np.arctan2(abs(h), abs(k))  < xythresh:
+          dydx = h/k
+          for ii in np.arange(nIm):
+            ystart =  pc_px[ii, 1] - (h * pc_px[ii, 0] - l * pc_px[ii, 2]) / k
+            yy = np.round(ystart + dydx*x.astype(np.float32)).astype(np.int64)
+            wh = np.flatnonzero(np.asarray((yy > 0) & (yy < nY)))
+            if wh.shape[0] > 0:
+              radon[i+padding[0], j + padding[1], ii] = np.mean(image[ii, yy[wh], x[wh]]).astype(np.float32)
+        else:
+          dxdy = k/h
+          for ii in np.arange(nIm):
+            xstart = (-1.0 * l * pc_px[ii,2] -k * pc_px[ii,1])/h + pc_px[ii,0]
+            xx = np.round(xstart+dxdy*y.astype(np.float32)).astype(np.int64)
+            wh = np.flatnonzero(np.asarray((xx > 0) & (xx < nX)))
+            if wh.shape[0] > 0:
+              radon[i+padding[0], j+padding[1], ii] = np.mean(image[ii, y[wh], xx[wh]]).astype(np.float32)#/np.float32(wh.shape[0])
     if reform==True:
       image = image.reshape(shapeIm)
 
-    #print(timer()-tic)
+
     return radon
 
-  def radon_faster(self,imageIn,padding = np.array([0,0]), fixArtifacts = False, background = None):
-    tic = timer()
-    shapeIm = np.shape(imageIn)
-    if imageIn.ndim == 2:
-      nIm = 1
-      #image = image[np.newaxis, : ,:]
-      #reform = True
-    else:
-      nIm = shapeIm[0]
-    #  reform = False
 
-    if background is None:
-      image = imageIn.reshape(-1)
-    else:
-      image = imageIn - background
-      image = image.reshape(-1)
-
-    nPx = shapeIm[-1]*shapeIm[-2]
-    indxDim = np.asarray(self.indexPlan.shape)
-    #radon = np.zeros([nIm, self.nRho+2*padding[0], self.nTheta+2*padding[1]], dtype=np.float32)
-    radon = np.zeros([self.nRho + 2 * padding[0],self.nTheta + 2 * padding[1], nIm],dtype=np.float32)
-    shp = radon.shape
-
-    counter = self.rdn_loops(image,self.indexPlan,nIm,nPx,indxDim,radon, np.asarray(padding))
-
-    if (fixArtifacts == True):
-      radon[:,padding[1],:] = radon[:,padding[1]+1,:]
-      radon[:,shp[1]-1-padding[1],:] = radon[:,shp[1]-padding[1]-2,:]
-
-
-    image = image.reshape(shapeIm)
-
-    #print(timer()-tic)
-    return radon#, counter
 
   @staticmethod
   @jit(nopython=True, fastmath=True, cache=True, parallel=False)
