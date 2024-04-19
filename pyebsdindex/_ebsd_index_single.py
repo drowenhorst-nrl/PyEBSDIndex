@@ -582,7 +582,7 @@ class EBSDIndexer:
             pats, xylocin = self.fID.read_data(
                 returnArrayOnly=True,
                 patStartCount=[patstart, npats],
-                convertToFloat=True,
+                convertToFloat=False,
             )
             if xyloc is None:
                 xyloc = xylocin
@@ -617,7 +617,7 @@ class EBSDIndexer:
 
     def _indexbandsphase(self, banddata, bandnorm, verbose=0):
 
-#        rhomax = 1.0e12
+#
         rhomax = self.bandDetectPlan.rhoMax * (1-self.bandDetectPlan.rhoMaskFrac)
         shpBandDat = banddata.shape
         npoints = int(banddata.size/(shpBandDat[-1])+0.1)
