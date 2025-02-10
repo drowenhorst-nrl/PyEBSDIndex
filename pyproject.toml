@@ -108,6 +108,9 @@ dependencies = [
 [tool.hatch.envs.types.scripts]
 check = "mypy --install-types --non-interactive {args:src/temporary tests}"
 
+[tool.hatch.metadata]
+allow-direct-references = true
+
 [tool.coverage.run]
 source_pkgs = ["temporary", "tests"]
 branch = true
@@ -129,3 +132,4 @@ exclude_lines = [
   "if __name__ == .__main__.:",
   "if TYPE_CHECKING:",
 ]
+
