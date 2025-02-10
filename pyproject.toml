@@ -20,8 +20,8 @@ authors = [
   { name = "Dave Rowenhorst", email = "" },
 ]
 maintainers = [
-  { name = "Dave Rowenhorst", email = "" },
-  { name = "Håkon Wiik Ånes",email = "" },
+  { name = "Dave Rowenhorst" },
+  { name = "Håkon Wiik Ånes"},
 ]
 
 classifiers = [
@@ -72,7 +72,9 @@ parallel = [
         "pydantic                       < 2",
 ]
 all = [
-
+        "pyopencl",
+        "ray[default]                   >= 1.13",
+        "pydantic                       < 2",
 ]
 
 
