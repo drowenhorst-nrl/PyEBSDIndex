@@ -1,0 +1,129 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "pyebsdindex"
+dynamic = ["version"]
+description = "Python based tool for Radon based EBSD indexing"
+readme = "README.md"
+requires-python = ">=3.8"
+license = {file = "LICENSE"}
+keywords = [
+  "EBSD",
+  "electron backscatter diffraction",
+  "HI",
+  "Radon indexing",
+  "NLPAR"
+]
+authors = [
+  { name = "Dave Rowenhorst", email = "" },
+]
+maintainers = [
+  { name = "Dave Rowenhorst", email = "" },
+  { name = "Håkon Wiik Ånes",email = "" },
+]
+
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "Programming Language :: Python",
+  "Programming Language :: Python :: 3.8",
+  "Programming Language :: Python :: 3.9",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: Implementation :: CPython",
+  "Programming Language :: Python :: Implementation :: PyPy",
+]
+dependencies = [
+  "h5py",
+  "matplotlib",
+  "numpy",
+  "numba>=0.53",
+  "scipy",
+]
+
+[project.urls]
+Documentation = "https://pyebsdindex.readthedocs.io"
+Issues = "https://github.com/USNavalResearchLaboratory/PyEBSDIndex/issues"
+Source = "https://github.com/USNavalResearchLaboratory/PyEBSDIndex"
+
+[project.optional-dependencies]
+doc = [
+        "nbsphinx                       >= 0.7",
+        "numpydoc",
+        "pydata-sphinx-theme",
+        "sphinx                         >= 3.0.2",
+        "sphinx-codeautolink[ipython]",
+        "sphinx-copybutton              >= 0.2.5",
+        "sphinx-design",
+        "sphinx-gallery",
+]
+tests = [
+        "coverage                       >= 5.0",
+        "pytest                         >= 5.4",
+        "pytest-cov                     >= 2.8.1",
+]
+gpu = [
+        "pyopencl",
+    ]
+parallel = [
+        "ray[default]                   >= 1.13",
+        "pydantic                       < 2",
+]
+all = [
+
+]
+
+
+[tool.hatch.version]
+path = "pyebsdindex/__init__.py"
+
+[tool.hatch.envs.default]
+dependencies = [
+  "coverage[toml]>=6.5",
+  "pytest",
+]
+[tool.hatch.envs.default.scripts]
+test = "pytest {args:tests}"
+test-cov = "coverage run -m pytest {args:tests}"
+cov-report = [
+  "- coverage combine",
+  "coverage report",
+]
+cov = [
+  "test-cov",
+  "cov-report",
+]
+
+[[tool.hatch.envs.all.matrix]]
+python = ["3.8", "3.9", "3.10", "3.11", "3.12"]
+
+[tool.hatch.envs.types]
+dependencies = [
+  "mypy>=1.0.0",
+]
+[tool.hatch.envs.types.scripts]
+check = "mypy --install-types --non-interactive {args:src/temporary tests}"
+
+[tool.coverage.run]
+source_pkgs = ["temporary", "tests"]
+branch = true
+parallel = true
+source = ["pyebsdindex"]
+relative_files = true
+omit = [
+  "pyebsdindex/__init__.py",
+  "pyebsdindex/tests/**/*.py",
+]
+
+[tool.coverage.paths]
+temporary = ["src/temporary", "*/temporary/src/temporary"]
+tests = ["tests", "*/temporary/tests"]
+
+[tool.coverage.report]
+exclude_lines = [
+  "no cov",
+  "if __name__ == .__main__.:",
+  "if TYPE_CHECKING:",
+]
