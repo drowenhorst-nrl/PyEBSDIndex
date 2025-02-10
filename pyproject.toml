@@ -17,7 +17,7 @@ keywords = [
   "NLPAR"
 ]
 authors = [
-  { name = "Dave Rowenhorst", email = "" },
+  { name = "Dave Rowenhorst" },
 ]
 maintainers = [
   { name = "Dave Rowenhorst" },
