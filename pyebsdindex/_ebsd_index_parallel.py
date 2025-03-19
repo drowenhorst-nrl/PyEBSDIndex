@@ -138,8 +138,8 @@ def index_pats_distributed(
         If not set, we will make a guess based on the resources
         available.
     ncpu : int, optional
-        Number of CPUs to use. Default value is ``-1``, meaning all
-        available CPUs will be used.
+        Number of CPUs to use. Default value is ``-1``, meaning the
+        program will choose up to 18 processes/phase.
     return_indexer_obj : bool, optional
         Whether to return the EBSD indexer. Default is ``False``.
     ebsd_indexer_obj : EBSDIndexer, optional
@@ -148,8 +148,10 @@ def index_pats_distributed(
         indexer.
     keep_log : bool, optional
         Whether to keep the log. Default is ``False``.
-    gpu_id : int, optional
-        ID of GPU to use if :mod:`pyopencl` is installed.
+    gpu_id : int, or list of int, optional
+        ID of GPU to use if :mod:`pyopencl` is installed. Default is to
+        use all discrete GPUs, and if none are installed, fall back
+        to integrated GPU.
     verbose : int, optional
         0 - no output (default), 1 - timings, 2 - timings and the Radon
         transform of the first pattern with detected bands highlighted.
@@ -290,6 +292,7 @@ def index_pats_distributed(
         if clparam is None:
             ngpu = 0
             ngpupnode = 0
+            indexer.bandDetectPlan.useCPU == True
         else:
             if ngpu is None:
                 ngpu = len(clparam.gpu)
@@ -370,7 +373,7 @@ def index_pats_distributed(
                       {"PYTHONPATH": os.path.dirname(os.path.dirname(__file__)),
                        "CUDA_VISIBLE_DEVICES": cudagpuvis,
                       }},
-        logging_level=logging.WARNING,
+        logging_level=logging.ERROR, log_to_driver=False,
     )  # Supress INFO messages from ray.
     if verbose > 1:
         print("num cpu/gpu, and number of patterns per iteration:", n_cpu_nodes, ngpu, chunksize, ngpuwrker, ncpuwrker)
@@ -380,7 +383,10 @@ def index_pats_distributed(
     # Get the function that will collect opencl parameters - if opencl
     # is not installed, this is None, and the program will automatically
     # fall back to CPU only calculation.
-    clparamfunction = band_detect.getopenclparam
+    if ngpu == 0:
+        clparamfunction = None
+    else:
+        clparamfunction = band_detect.getopenclparam
     # Set up the jobs
     njobs = (np.ceil(npats / chunksize)).astype(np.int64)
 
