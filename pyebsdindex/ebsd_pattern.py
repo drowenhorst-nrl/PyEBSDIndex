@@ -151,7 +151,7 @@ def pat_flt2int(patterns,typeout=None,method='clip',scalevalue=0.98,maxScale=Non
   minval = 0
   maxval = 255
   if np.issubdtype(typeout, np.integer):
-    minval = 0
+    minval = np.iinfo(typeout).min
     maxval = np.iinfo(typeout).max
 
 
