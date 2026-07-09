@@ -145,15 +145,14 @@ def pat_flt2int(patterns,typeout=None,method='clip',scalevalue=0.98,maxScale=Non
     if maxp > 258:
      typeout = np.uint16
 
-  if (isinstance(typeout(0), np.floating )):
+  if np.issubdtype(typeout, np.floating ):
     return pats.astype(typeout)
 
   minval = 0
   maxval = 255
-  if (isinstance(typeout(0), np.uint16)):
-    typeout = np.uint16
+  if np.issubdtype(typeout, np.integer):
     minval = 0
-    maxval = 65535
+    maxval = np.iinfo(typeout).max
 
 
   patsout = np.zeros(shp, dtype=typeout)
@@ -403,7 +402,8 @@ class EBSDPatternFile():
         for i in range(nrowwrite):
           pstart = np.int64(np.int64(np.int64(rowstart+i)*self.nCols)+colstart)
           self.write_data(newpatterns = pats[np.int64(i*ncolwrite):np.int64((i+1)*ncolwrite), :, :], patStartCount=[pstart,ncolwrite],writeHead=False,
-                          flt2int=flt2int,scalevalue=0.98, maxScale = max)
+                          flt2int=flt2int,scalevalue=scalevalue, maxScale = max)
+
   def pat_writer(self, pat2write, patStart, nPatToWrite, typewrite):
     pass
 
