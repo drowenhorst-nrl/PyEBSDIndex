@@ -21,3 +21,9 @@ Pattern processing
 .. nbgallery::
 
     NLPAR_demo
+
+STEM processing
+
+.. nbgallery::
+
+    NLSTEM_Tutorial
