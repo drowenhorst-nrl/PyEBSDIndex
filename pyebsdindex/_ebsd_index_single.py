@@ -888,14 +888,16 @@ class EBSDIndexer:
             excludedpaths = ["fID",
                              "bandDetectPlan",
                              "phaseLib", "phaselist",
-                             'PCcorrectMethod', 'PCcorrectParam', 'dataTemplate']
+                             'PCcorrectMethod', 'PCcorrectParam', 'dataTemplate', 'gnomonic']
 
             savedict = {}
             hfile['version'] = str(__version__).encode('ascii')
+
             for item in vars(self).keys():
                 if item not in excludedpaths:
                     # hfile[item] = getattr(self, item)
                     h5getatrib(hfile, self, item)
+                    
 
 
             bdp = hfile.create_group('bandDetectPlan')
