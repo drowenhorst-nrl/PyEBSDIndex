@@ -67,7 +67,7 @@ jobs:
           pip install ${{ matrix.DEPENDENCIES }}
 
       - name: Install support for multiprocessing and GPU support
-        if: ${{ matrix.os == 'ubuntu-latest'}} # || matrix.os == 'macos-latest' }}
+        if: ${{ matrix.os == 'ubuntu-latest' || matrix.os == 'macos-latest' }}
         # GitHub RAM limits for macOS are not working properly with Ray > 0.53
         # I hope to reverse this sometime in the future.
 
