@@ -18,6 +18,7 @@ dist/
 **/.idea
 .vscode
 *.code-workspace
+mprofile_*
 
 # Line coverage
 .coverage*
@@ -25,3 +26,5 @@ dist/
 # Sphinx
 doc/build
 doc/reference/generated/
+
+

@@ -20,7 +20,7 @@
 # Author: David Rowenhorst;
 # The US Naval Research Laboratory Date: 21 Aug 2020
 
-import os
+import os, sys
 import gc
 import numpy as np
 import pytest
@@ -77,6 +77,8 @@ class TestEBSDIndexer:
         # os.environ['TF_NUM_INTEROP_THREADS'] = '1'
         # os.environ['TF_NUM_INTRAOP_THREADS'] = '1'
         # os.environ['RAY_kill_child_processes_on_worker_exit'] = 'true'
+        if sys.platform == "darwin":
+            os.environ['RAY_OBJECT_STORE_ALLOW_SLOW_STORAGE']= '1'
 
         from pyebsdindex.ebsd_index import index_pats_distributed
 
