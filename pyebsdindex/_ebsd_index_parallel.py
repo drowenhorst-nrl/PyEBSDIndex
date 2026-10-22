@@ -295,7 +295,7 @@ def index_pats_distributed(
         if clparam is None:
             ngpu = 0
             ngpupnode = 0
-            indexer.bandDetectPlan.useCPU == True
+            indexer.bandDetectPlan.useCPU = True
         else:
             if ngpu is None:
                 ngpu = len(clparam.gpu)
@@ -326,12 +326,13 @@ def index_pats_distributed(
     if ncpu != -1:
         n_cpu_nodes = int(ncpu)
 
-    gpucycletimeout = 1000
+    gpucycletimeout = 2000
     if ngpu > 0:
         gpuratio = (12, ngpu*4)
         gpucycletimeout = 100
         if (platform.system()) == ('Darwin'):
-            gpuratio = (12, ngpu*6)
+            pucycletimeout = 2000
+            gpuratio = (4, ngpu*4)#(12, ngpu*6)
         #ngpupro = min(max(gpuratio), 12)  # number of processes that will serve data to the gpu
         ngpupro = min(max(gpuratio), 12)
 
@@ -729,6 +730,7 @@ def index_pats_distributed(
                                 ctaskindex[jid] = None
 
                         else: # there should be more to do, but waiting for work.
+                            time.sleep(0.05)
                             cputask[jid] = cpuworkers[jid].indexpoles.remote(None, None, None)
                             ctaskindex[jid] = None
 
@@ -937,7 +939,7 @@ class CPUWorker:
 
     def indexpoles(self, cpujob, banddata, bandnorm, indexer=None):
         if cpujob is None:
-            #time.sleep(0.01)
+            time.sleep(0.01)
             return 'Bored', (None, None, None)
         try:
             # print(type(self.openCLParams.ctx))
