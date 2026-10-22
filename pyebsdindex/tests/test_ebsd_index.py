@@ -79,6 +79,8 @@ class TestEBSDIndexer:
         # os.environ['RAY_kill_child_processes_on_worker_exit'] = 'true'
         if sys.platform == "darwin":
             os.environ['RAY_OBJECT_STORE_ALLOW_SLOW_STORAGE']= '1'
+        TOTAL_RAM_LIMIT_BYTES = 2 * 1024 ** 3
+        os.environ["RAY_system_memory"] = str(TOTAL_RAM_LIMIT_BYTES)
 
         from pyebsdindex.ebsd_index import index_pats_distributed
 
