@@ -83,6 +83,12 @@ jobs:
           pip list
 
       - name: Run tests
+        env:
+          RAY_START_TIMEOUT_S: "120"
+          RAY_DASHBOARD_DISABLE: "1"
+          RAY_NUM_CPUS: "2"
+          NO_PROXY: "*"
+          no_proxy: "*"
         run: |
           pytest --cov=pyebsdindex --pyargs pyebsdindex
 
