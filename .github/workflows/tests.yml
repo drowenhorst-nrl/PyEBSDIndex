@@ -88,7 +88,8 @@ jobs:
           RAY_DASHBOARD_DISABLE: "1"
           RAY_NUM_CPUS: "2"
           NO_PROXY: "*"
-          no_proxy: "*"
+          NUMBA_NUM_THREADS: "2"
+          OMP_NUM_THREADS: "2"
         run: |
           pytest --cov=pyebsdindex --pyargs pyebsdindex
 
