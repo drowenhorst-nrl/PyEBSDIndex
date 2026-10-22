@@ -376,11 +376,13 @@ def index_pats_distributed(
     cudagpuvis0 = os.getenv("CUDA_VISIBLE_DEVICES")
     os.environ["CUDA_VISIBLE_DEVICES"] = cudagpuvis
     os.environ["RAY_ACCEL_ENV_VAR_OVERRIDE_ON_ZERO"] ='0'
+    os.environ["RAY_OBJECT_STORE_ALLOW_SLOW_STORAGE"] = "1"
     
     rayclust = ray.init(
         #num_cpus=int(np.round(n_cpu_nodes)),
         num_cpus=min(int(np.round(os.cpu_count())), int(ncpuwrker+ngpuwrker) ),
         num_gpus=ngpu,
+        object_store_memory= 4 * 1024 ** 3,
         _node_ip_address=RAYIPADDRESS, #"0.0.0.0",
         runtime_env={"env_vars":
                       {"PYTHONPATH": os.path.dirname(os.path.dirname(__file__)),
