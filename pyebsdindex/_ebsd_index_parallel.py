@@ -342,7 +342,7 @@ def index_pats_distributed(
         #     ngpupro = 2
 
 
-        n_cpu_per_gpu = (0.5/ngpu) #max(min(1.0, n_cpu_nodes-ngpu), 0.5/ngpu)
+        n_cpu_per_gpu = (0.1/ngpu) #max(min(1.0, n_cpu_nodes-ngpu), 0.5/ngpu)
 
         ngpuwrker = ngpupro
 
@@ -378,7 +378,7 @@ def index_pats_distributed(
     os.environ["CUDA_VISIBLE_DEVICES"] = cudagpuvis
     os.environ["RAY_ACCEL_ENV_VAR_OVERRIDE_ON_ZERO"] ='0'
     os.environ["RAY_OBJECT_STORE_ALLOW_SLOW_STORAGE"] = "1"
-    os.environ["RAY_ENABLE_MAC_LARGE_OBJECT_STORE"] = "1"
+    #os.environ["RAY_ENABLE_MAC_LARGE_OBJECT_STORE"] = "1"
     os.environ["RAY_AUTH_MODE"]="disabled"
     object_store_size = 500 * 1024 * 1024 if OSPLATFORM == "Darwin" else None
     

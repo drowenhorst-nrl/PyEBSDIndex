@@ -91,7 +91,12 @@ jobs:
           NUMBA_NUM_THREADS: "2"
           OMP_NUM_THREADS: "2"
         run: |
-          pytest --cov=pyebsdindex --pyargs pyebsdindex
+          if [ "$RUNNER_OS" == "macOS" ]; then
+              pytest -v -s --pyargs pyebsdindex
+          else
+            pytest -v -s --cov=pyebsdindex --pyargs pyebsdindex
+          fi
+          
 
       - name: Generate line coverage
         if: ${{ matrix.os == 'ubuntu-latest' }}
