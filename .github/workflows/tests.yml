@@ -67,7 +67,7 @@ jobs:
           pip install ${{ matrix.DEPENDENCIES }}
 
       - name: Install support for multiprocessing and GPU support
-        if: ${{ matrix.os == 'ubuntu-latest'}} # || matrix.os == 'macos-latest' }}
+        if: ${{ matrix.os == 'ubuntu-latest' || matrix.os == 'macos-latest' }}
         # GitHub RAM limits for macOS are not working properly with Ray > 0.53
         # I hope to reverse this sometime in the future.
 
@@ -86,11 +86,14 @@ jobs:
         env:
           RAY_START_TIMEOUT_S: "120"
           RAY_DASHBOARD_DISABLE: "1"
-          RAY_NUM_CPUS: "2"
-          NO_PROXY: "*"
+          RAY_NUM_CPUS: ${{ runner.os == 'macOS' && '2' || '' }}
+          RAY_ENABLE_MEMORY_MONITOR: ${{ runner.os == 'macOS' && '0' || '' }}
           NUMBA_NUM_THREADS: "2"
           OMP_NUM_THREADS: "2"
         run: |
+          if [ "${{ runner.os }}" = "macOS" ]; then
+            ulimit -n 65536
+          fi
           pytest -v -s --cov=pyebsdindex --pyargs pyebsdindex
          
           
