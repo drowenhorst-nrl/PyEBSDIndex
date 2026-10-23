@@ -91,7 +91,7 @@ jobs:
           NUMBA_NUM_THREADS: "2"
           OMP_NUM_THREADS: "2"
         run: |
-          if [ "${{ runner.os }}" = "macOS" ]; then
+          if [ "${{ runner.os }}" == "macOS" ]; then
             ulimit -n 65536
           fi
           pytest -v -s --cov=pyebsdindex --pyargs pyebsdindex
