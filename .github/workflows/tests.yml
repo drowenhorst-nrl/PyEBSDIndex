@@ -88,14 +88,20 @@ jobs:
           RAY_START_TIMEOUT_S: "120"
           RAY_DASHBOARD_DISABLE: "1"
           RAY_NUM_CPUS: ${{ runner.os == 'macOS' && '2' || '' }}
-          RAY_OBJECT_STORE_MEMORY: ${{ runner.os == 'macOS' && '500000000' || '' }}
+          RAY_OBJECT_STORE_MEMORY: ${{ runner.os == 'macOS' && '300000000' || '' }}
           RAY_ENABLE_MEMORY_MONITOR: ${{ runner.os == 'macOS' && '0' || '' }}
+
           NUMBA_NUM_THREADS: "2"
           OMP_NUM_THREADS: "2"
         run: |
           if [ "${{ runner.os }}" = "macOS" ]; then
             ulimit -n 65536
+            rm -rf /tmp/ray
+            mkdir -p /tmp/ray
+            export RAY_TMPDIR=/tmp/ray
             pytest -v -s --pyargs pyebsdindex
+            # Ensure Ray daemons are forcefully shut down to avoid SIGKILL 137
+            ray stop --force || true
           else
             pytest -v -s --cov=pyebsdindex --pyargs pyebsdindex
           fi
