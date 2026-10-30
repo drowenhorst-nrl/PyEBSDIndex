@@ -20,9 +20,36 @@ some notice that they have been modified.
 
 Author: David Rowenhorst; 
 The US Naval Research Laboratory Date: 05 Aug 2026
+
+ File: clkernels.cl
+ --------------------------------- 
+ This file contains OpenCL kernels for PyEBSDIndex, a library for Electron Backscatter 
+ Diffraction (EBSD) pattern processing and analysis. The kernels implement various image
+ processing operations including:
+ 
+ - Data loading and conversion (loadubyte8, loaduint16, loadfloat32)
+ - Background subtraction and division (backSub, backDiv)
+ - Radon transform operations (radonSum, radonFixArt, radonPadTheta, radonPadRho)
+ - Image convolution and morphological operations (convolution3d2d, morphDilateKernelBF)
+ - Image statistics and normalization (imageMinAveMax, imageSubMinNormWClip)
+ - Peak detection and analysis (maxlabel, dirtsort)
+ 
+ These kernels are designed to run on GPUs and other OpenCL-compatible devices to
+ accelerate EBSD pattern processing tasks.
 */
 
 // simple program to convert a 8-bit byte to float and transpose array
+// This kernel is used in the image loading pipeline to convert unsigned char (8-bit) 
+// image data to float format with array transposition for efficient memory access
+// patterns in subsequent processing steps.
+// 
+// Parameters:
+//   im1:    Input 8-bit image data (unsigned char array)
+//   im1flt: Output float image data
+//   nImCL:  Number of images to process in this chunk
+//
+// The transposition changes the memory layout from [x,y,z] to [z,x,y] for better
+// GPU memory access performance in subsequent operations
 __kernel void loadubyte8( const __global uchar *im1, __global float *im1flt, const unsigned long int nImCL)
   {
   const unsigned long int x = get_global_id(0);
@@ -36,7 +63,7 @@ __kernel void loadubyte8( const __global uchar *im1, __global float *im1flt, con
   const unsigned long int indx2 = z + nImCL*(x + nx*y); // transpose z->x, x->y, y->z 
   uchar imVal;
   float imValflt;
-
+  
   imVal =  im1[indx1];
   imValflt = convert_float(imVal);
   im1flt[indx2] = imValflt;
@@ -45,7 +72,18 @@ __kernel void loadubyte8( const __global uchar *im1, __global float *im1flt, con
 }
 
 
-// simple program to convert a 8-bit byte to float and transpose array
+// simple program to convert a 16-bit unsigned short to float and transpose array
+// This kernel is used in the image loading pipeline to convert unsigned short (16-bit) 
+// image data to float format with array transposition for efficient memory access
+// patterns in subsequent processing steps.
+// 
+// Parameters:
+//   im1:    Input 16-bit image data (unsigned short array) - processes images individually
+//   im1flt: Output float image data - processes images individually  
+//   nImCL:  Number of images to process in this chunk - typically processes single images
+//
+// The transposition changes the memory layout from [x,y,z] to [z,x,y] for better
+// GPU memory access performance in subsequent operations
 __kernel void loaduint16( const __global ushort *im1, __global float *im1flt, const unsigned long int nImCL)
   {
   const unsigned long int x = get_global_id(0);
@@ -69,7 +107,18 @@ __kernel void loaduint16( const __global ushort *im1, __global float *im1flt, co
 
 
 
-// simple program to convert a float to float and transpose array
+// simple program to convert a 32-bit float to float and transpose array
+// This kernel is used in the image loading pipeline to convert float (32-bit) 
+// image data to float format with array transposition for efficient memory access
+// patterns in subsequent processing steps.
+// 
+// Parameters:
+//   im1:    Input 32-bit float image data (float array) - processes images individually
+//   im1flt: Output float image data - processes images individually
+//   nImCL:  Number of images to process in this chunk - typically processes single images
+//
+// The transposition changes the memory layout from [x,y,z] to [z,x,y] for better
+// GPU memory access performance in subsequent operations
 __kernel void loadfloat32( const __global float *im1, __global float *im1flt, const unsigned long int nImCL)
   {
   const unsigned long int x = get_global_id(0);
@@ -90,7 +139,19 @@ __kernel void loadfloat32( const __global float *im1, __global float *im1flt, co
 }
 
 
-//Do a background subtract on the pattern
+// Perform background subtraction on EBSD patterns
+// This kernel subtracts a pre-computed background pattern from each image in a stack
+// to remove background noise and improve pattern visibility.
+// 
+// Parameters:
+//   im1:         Input/Output image stack (float16 array) - modified in-place
+//                Processes images in batches of nImChunk (typically 16 images at once)
+//   back:        Background pattern to subtract (float array) - single background for all images
+//   nImChunk:    Number of images in the current processing batch (typically 16)
+//
+// Each pixel in the image stack has the corresponding background value subtracted from it.
+// The background pattern is typically computed as an average or median of many patterns.
+// This operation processes multiple images in parallel for efficiency.
 __kernel void backSub( __global float16 *im1, __global const float *back,
                         const unsigned long int nImChunk)
   {
@@ -110,7 +171,18 @@ __kernel void backSub( __global float16 *im1, __global const float *back,
   
 }
 
-//Do a background division on the pattern
+// Perform background division on EBSD patterns
+// This kernel divides each image in a stack by a pre-computed background pattern
+// to normalize intensity and remove background variations.
+// 
+// Parameters:
+//   im1:         Input/Output image stack (float16 array) - modified in-place
+//   back:        Background pattern to divide by (float array)
+//   nImChunk:    Number of images in the current processing chunk
+//
+// Each pixel in the image stack is divided by the corresponding background value.
+// Background values less than 1.0 are clamped to 1.0 to avoid division by zero or amplification.
+// This operation helps normalize patterns and reduce the effects of uneven illumination.
 __kernel void backDiv( __global float16 *im1, __global const float *back,
                         const unsigned long int nImChunk)
   {
@@ -134,6 +206,24 @@ __kernel void backDiv( __global float16 *im1, __global const float *back,
 }
 
 
+// Compute Radon transform of EBSD patterns
+// This kernel computes the Radon transform (projection) of EBSD patterns along specified
+// lines in the pattern. The Radon transform is used for detecting bands in EBSD patterns.
+// 
+// Parameters:
+//   rdnIndx:   Array of indices for Radon transform lines (unsigned long int array)
+//   images:    Input EBSD pattern images (float16 array)
+//   radon:     Output Radon transform results (float16 array)
+//   imstep:    Size of one image in pixels
+//   indxstep:  Number of indices per Radon line
+//   nRhoP:     Number of rho (distance) values in padded Radon space
+//   nThetaP:   Number of theta (angle) values in padded Radon space
+//   rhoPad:    Padding size for rho dimension
+//   thetaPad:  Padding size for theta dimension
+//   nTheta:    Number of theta values in original Radon space
+//
+// The kernel processes each image in parallel, computing the average intensity along each
+// specified line in the Radon transform space. Missing values are indicated by -1.0.
 __kernel void radonSum(
       __global const unsigned long int *rdnIndx, __global const float16 *images, __global float16 *radon,
       const unsigned long int imstep, const unsigned long int indxstep,
@@ -172,6 +262,18 @@ __kernel void radonSum(
     
     }
 
+// Fix artifacts in Radon transform at theta boundaries
+// This kernel corrects artifacts that occur at the theta=0 and theta=180 degree boundaries
+// of the Radon transform by copying values from adjacent valid positions.
+// 
+// Parameters:
+//   radon:      Input/Output Radon transform data (float16 array) - modified in-place
+//   nRho:       Number of rho (distance) values
+//   nTheta:     Number of theta (angle) values
+//   thetaPad:   Padding size for theta dimension
+//
+// The kernel copies values from theta=1 to theta=0 and from theta=nTheta-2 to theta=nTheta-1
+// to fix boundary artifacts that can occur due to the periodic nature of the Radon transform.
 __kernel void radonFixArt(
       __global float16 *radon,
       const unsigned long int nRho, const unsigned long int nTheta,
@@ -215,7 +317,19 @@ __kernel void radonFixArt(
 
 
 
-// Padding of the radon Theta -- 0 and 180* are symmetric with a vertical flip.
+// Pad Radon transform in theta dimension
+// This kernel performs symmetric padding in the theta dimension of the Radon transform
+// by copying values from the opposite side of the transform space.
+// 
+// Parameters:
+//   radon:      Input/Output Radon transform data (float array) - modified in-place
+//   nRho:       Number of rho (distance) values
+//   nTheta:     Number of theta (angle) values
+//   thetaPad:   Number of padding elements to add to theta dimension
+//
+// The padding uses the symmetry property of the Radon transform where theta and theta+180
+// are related by vertical flipping. This creates symmetric padding that helps with
+// subsequent processing steps like convolution.
 __kernel void radonPadTheta(
       __global float *radon,
       const unsigned long int nRho, const unsigned long int nTheta,
@@ -235,8 +349,20 @@ __kernel void radonPadTheta(
 
   }
 
-// Padding of the radon Rho -- copy the defined line to all other rows ...
-  __kernel void radonPadRho(
+// Pad Radon transform in rho dimension
+// This kernel performs padding in the rho dimension of the Radon transform
+// by copying values from the nearest valid line.
+// 
+// Parameters:
+//   radon:      Input/Output Radon transform data (float array) - modified in-place
+//   nRho:       Number of rho (distance) values
+//   nTheta:     Number of theta (angle) values
+//   rhoPad:     Number of padding elements to add to rho dimension
+//
+// The padding copies the values from the first and last valid rho lines to create
+// padding at the boundaries. This helps with subsequent processing steps and prevents
+// edge artifacts in operations like convolution.
+__kernel void radonPadRho(
       __global float *radon,
       const unsigned long int nRho, const unsigned long int nTheta,
       const unsigned long int rhoPad)
@@ -308,8 +434,25 @@ __kernel void radonPadTheta(
   }
 
 
-// Convolution of a stack of images by a 2D kernel
-// At somepoint we might want to consider the ability to chain together convolutions -- keeping the max at each pixel...
+// Perform 2D convolution on a stack of 3D images
+// This kernel applies a 2D convolution kernel to each image in a 3D stack.
+// The convolution is used for smoothing, edge detection, or other filtering operations.
+// 
+// Parameters:
+//   in:     Input image stack (float16 array)
+//   kern:   Convolution kernel (float array) - stored in constant memory
+//   imszx:  Image width in pixels
+//   imszy:  Image height in pixels
+//   imszz:  Number of images in stack
+//   kszx:   Kernel width in pixels
+//   kszy:   Kernel height in pixels
+//   padx:   Padding size in x dimension
+//   pady:   Padding size in y dimension
+//   out:    Output convolved image stack (float16 array)
+//
+// The kernel handles edge conditions by adjusting the convolution bounds and uses
+// the full kernel for interior pixels. The output is computed as the sum of
+// element-wise products between the kernel and the corresponding image region.
 __kernel void convolution3d2d( __global const float16 *in, __constant float *kern, const int imszx, const int imszy, const int imszz, 
   const int kszx, const int kszy, const int padx, const int pady, __global float16 *out)
 {
@@ -358,7 +501,26 @@ __kernel void convolution3d2d( __global const float16 *in, __constant float *ker
   out[(y*imszx + x) * nImChunk + z] = sum;
 }
 
-//Brute force gray-scale dilation (or local max).  This may be replaced with the van Herk/Gil-Werman algorithm
+// Perform brute-force grayscale morphological dilation
+// This kernel implements a local maximum operation (dilation) using a brute-force approach.
+// Dilation expands bright regions and is used for image enhancement and feature detection.
+// 
+// Parameters:
+//   in:     Input image stack (float16 array)
+//   out:    Output dilated image stack (float16 array)
+//   imszx:  Image width in pixels
+//   imszy:  Image height in pixels
+//   padx:   Padding size in x dimension
+//   pady:   Padding size in y dimension
+//   kszx:   Structuring element width in pixels
+//   kszy:   Structuring element height in pixels
+//
+// For each pixel, the kernel finds the maximum value in the neighborhood defined by the
+// structuring element (kernel size). Edge pixels use smaller neighborhoods to stay within
+// image bounds. The result expands bright features and fills small dark holes.
+//
+// Note: This brute-force implementation may be replaced with more efficient algorithms
+// like van Herk/Gil-Werman for better performance on large kernels.
 __kernel void morphDilateKernelBF( __global const float16 *in,  __global float16 *out,
                                    const long imszx, const long imszy, 
                                    const long padx, const long pady,
@@ -402,7 +564,26 @@ __kernel void morphDilateKernelBF( __global const float16 *in,  __global float16
   out[(y*imszx + x)*nImChunk+z] = extremePxVal;
 }
 
-//find the minimum, maximum and average intensity value in each image.  This probably could be sped up by using a work group store.
+// Compute image statistics (minimum, average, maximum)
+// This kernel calculates basic statistics for each image in a stack, which are used
+// for normalization and other preprocessing steps.
+// 
+// Parameters:
+//   im1:     Input image stack (float16 array)
+//   imMin:   Output minimum intensity values (float16 array) - one per image
+//   imMax:   Output maximum intensity values (float16 array) - one per image
+//   imAve:   Output average intensity values (float16 array) - one per image
+//   imszx:   Image width in pixels
+//   imszy:   Image height in pixels
+//   padx:    Padding size in x dimension
+//   pady:    Padding size in y dimension
+//
+// The kernel processes each image independently, computing the minimum, maximum, and
+// average intensity values while excluding padding regions. These statistics are
+// essential for subsequent normalization and contrast enhancement operations.
+//
+// Note: Performance could be improved by using work group reductions for parallel
+// computation of statistics within each work group.
 __kernel void imageMinAveMax( __global const float16 *im1, __global float16 *imMin, __global float16 *imMax, __global float16 *imAve,
                         const unsigned int imszx, const unsigned int imszy, const unsigned int padx, const unsigned int pady)
   {
@@ -434,8 +615,24 @@ __kernel void imageMinAveMax( __global const float16 *im1, __global float16 *imM
   imMax[z] = cmax;
 }
 
-// Subtract a value from an image stack, divide by average intensity, with clipping at 0.0.
-// The value to be subtracted are unique to each image, stored in an array in imMin
+// Normalize images by subtracting minimum and clipping
+// This kernel performs image normalization by subtracting the minimum intensity value
+// from each image and applying clipping to ensure non-negative values.
+// 
+// Parameters:
+//   im1:     Input/Output image stack (float16 array) - modified in-place
+//   imMin:   Minimum intensity values (float16 array) - one per image
+//   imAve:   Average intensity values (float16 array) - one per image (currently unused)
+//   imszx:   Image width in pixels
+//   imszy:   Image height in pixels
+//   padx:    Padding size in x dimension
+//   pady:    Padding size in y dimension
+//
+// For each pixel in each image, the kernel subtracts the image's minimum intensity value
+// and clips the result to be non-negative. This operation helps normalize the dynamic range
+// and prepare images for subsequent processing steps like peak detection.
+//
+// Note: The average intensity values (imAve) are passed but currently not used in this kernel.
 __kernel void imageSubMinNormWClip( __global float16 *im1, 
   __global const float16 *imMin, __global const float16 *imAve, 
   const unsigned int imszx, const unsigned int imszy, 
@@ -545,9 +742,24 @@ __kernel void maxmask( __global uchar16 *im1, __global const uchar *mask,
 }
 
 
-//this is a dirty little sort for getting the max locations ordered.  Will order accending.  
-// Keeping only the top nmax points.  Need to have maxval1d primed so that maxval1d[nmax] is larger 
-// than anything that will occur on its own.  
+// Simple insertion sort for peak detection
+// This function performs a basic insertion sort to maintain a list of the top N maximum
+// values and their locations. It's used during peak detection to keep track of the brightest
+// peaks in EBSD patterns.
+// 
+// Parameters:
+//   maxval1d:   Array of maximum values (float array) - maintains top N values in ascending order
+//   maxloc1d:   Array of maximum locations (long int array) - corresponding locations
+//   newloc:     Location of new candidate maximum
+//   newmax:     Value of new candidate maximum
+//   nmax:       Maximum number of peaks to track
+//
+// The function checks if the new value is larger than the smallest value currently in the
+// top N list. If so, it inserts the new value in the correct position, shifting other
+// values as needed. This maintains a sorted list of the top N peaks.
+//
+// Note: The array must be primed such that maxval1d[nmax-1] is larger than any value that
+// could naturally occur, to ensure proper sorting behavior.
 void dirtsort( __global float *maxval1d, __global long int *maxloc1d,
                 long int newloc, float newmax, unsigned long nmax);
 
@@ -579,7 +791,32 @@ void dirtsort( __global float *maxval1d, __global long int *maxloc1d,
 }
 
 
-// Is image1 (can be a stack of images)
+// Detect and analyze peaks in EBSD patterns
+// This kernel identifies local maxima (peaks) in EBSD patterns and performs sub-pixel
+// interpolation to determine peak positions with higher precision than the original grid.
+// 
+// Parameters:
+//   maxlocin:   Input peak location flags (uchar array) - 1 indicates potential peak
+//   maxvalin:   Input intensity values (float array)
+//   maxloc:     Output sorted peak locations (long int array) - [z*nmax + i]
+//   maxval:     Output sorted peak values (float array) - [z*nmax + i]
+//   aveloc:     Output sub-pixel peak positions (float2 array) - [z*nmax + i]
+//   aveval:     Output interpolated peak values (float array) - [z*nmax + i]
+//   width:      Output peak width estimates (float array) - [z*nmax + i]
+//   imszx:      Image width in pixels
+//   imszy:      Image height in pixels
+//   padx:       Padding size in x dimension
+//   pady:       Padding size in y dimension
+//   nmax:       Maximum number of peaks to detect per image
+//
+// The kernel first identifies all local maxima using the input flags, then sorts them
+// by intensity. For each significant peak, it performs sub-pixel interpolation using
+// a Taylor series approximation to determine the peak position with higher precision.
+// It also estimates peak widths assuming Gaussian profiles.
+//
+// The sub-pixel interpolation uses a 3x3 neighborhood around each peak to compute
+// gradients and curvature, providing more accurate peak localization for subsequent
+// crystallographic analysis.
 __kernel void maxlabel( __global const uchar *maxlocin,__global const float *maxvalin,
                         __global long int *maxloc,__global float *maxval,
                         __global float2 *aveloc,__global float *aveval,
@@ -805,8 +1042,22 @@ __kernel void maxlabel( __global const uchar *maxlocin,__global const float *max
 
 
 
-// These never quite worked.  Not the biggest time penalty anyway. 
-
+// Helper function for 1D morphological dilation
+// This function performs a 1D dilation operation on a small window of data.
+// It's used as a helper by the 2D dilation kernels to process rows or columns.
+// 
+// Parameters:
+//   winsz:      Window size for dilation
+//   winsz2:     Half window size (winsz/2)
+//   s:          Scratch array for left-to-right pass
+//   r:          Scratch array for right-to-left pass
+//   w:          Working array containing the data to dilate
+//
+// The function uses a two-pass algorithm: first computing maximum values from
+// left-to-right and right-to-left, then combining the results. This is more
+// efficient than a brute-force approach for 1D dilation.
+//
+// Note: This function is marked as not fully working in the current implementation.
 void morphDilateKernel(const unsigned long winsz, const unsigned long winsz2,
                       __local float16 *s,  __local float16 *r,  __local float16 *w);
 
@@ -827,6 +1078,26 @@ void morphDilateKernel(const unsigned long winsz, const unsigned long winsz2,
   }
 }
 
+// Perform 1D morphological dilation along X axis
+// This kernel performs dilation along the horizontal (X) axis of images using
+// the 1D dilation helper function. It processes images in chunks for efficiency.
+// 
+// Parameters:
+//   im1:        Input image stack (float16 array)
+//   out:        Output dilated image stack (float16 array)
+//   winszX:     Window size for X-axis dilation
+//   winszX2:    Half window size for X-axis dilation (winszX/2)
+//   imszx:      Image width in pixels
+//   imszy:      Image height in pixels
+//   padx:       Padding size in x dimension
+//   pady:       Padding size in y dimension
+//   s:          Local memory scratch array for left-to-right pass
+//   r:          Local memory scratch array for right-to-left pass
+//   w:          Local memory working array
+//
+// The kernel processes each row of each image independently, applying 1D dilation
+// along the horizontal direction. This is used as part of separable 2D dilation
+// where X and Y directions are processed separately.
 __kernel void morphDilateKernelX( __global const float16 *im1, __global float16 *out,
                         const unsigned long winszX, const unsigned long winszX2,
                         const unsigned long imszx, const unsigned long imszy,
@@ -862,6 +1133,27 @@ __kernel void morphDilateKernelX( __global const float16 *im1, __global float16 
 }
 
 
+// Perform 1D morphological dilation along Y axis
+// This kernel performs dilation along the vertical (Y) axis of images using
+// the 1D dilation helper function. It processes images in chunks for efficiency.
+// 
+// Parameters:
+//   im1:        Input image stack (float16 array)
+//   out:        Output dilated image stack (float16 array)
+//   winszY:     Window size for Y-axis dilation
+//   winszY2:    Half window size for Y-axis dilation (winszY/2)
+//   imszx:      Image width in pixels
+//   imszy:      Image height in pixels
+//   padx:       Padding size in x dimension
+//   pady:       Padding size in y dimension
+//   s:          Local memory scratch array for left-to-right pass
+//   r:          Local memory scratch array for right-to-left pass
+//   w:          Local memory working array
+//
+// The kernel processes each column of each image independently, applying 1D dilation
+// along the vertical direction. This is used as part of separable 2D dilation
+// where X and Y directions are processed separately for better performance than
+// a full 2D kernel would provide.
 __kernel void morphDilateKernelY( __global const float16 *im1, __global float16 *out,
                         const unsigned long winszY, const unsigned long winszY2,
                         const unsigned long imszx, const unsigned long imszy,
