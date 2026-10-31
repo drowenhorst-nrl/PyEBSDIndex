@@ -825,8 +825,9 @@ def __optimizegpuchunk__(indexer, ngpupro, gpu_id, clparam):
     twocheck = np.log2(float(chunk))
     if np.abs((twocheck) - np.round(twocheck)) < 0.2:
         chunk = int(2**int(np.round(twocheck)))
-        #if OSPLATFORM == 'Darwin': # I don't know why, but AMD/Intel macOS does not like powers of two.
-        #    chunk = max(48, chunk-16)
+        if (OSPLATFORM == 'Darwin') and (clparam.gpusharedmem == False):
+            # I don't know why, but AMD/Intel macOS does not like powers of two.
+            chunk = max(48, chunk-16)
 
     if clparam.gpusharedmem == True: # The GPU is an integrated GPU, so memory reporting might be strange.
         # Put a hard cap on number of patterns to process.
