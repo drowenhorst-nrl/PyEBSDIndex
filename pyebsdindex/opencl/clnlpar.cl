@@ -27,6 +27,16 @@ Patrick T. Brewick, Stuart I. Wright, David J. Rowenhorst. Ultramicroscopy, 200:
 */
 
 
+/**
+ * Sums all 16 elements of a float16 vector.
+ * 
+ * This utility function iterates through all 16 components (s0-sf) of a float16 vector
+ * and returns their sum. This is used throughout the OpenCL kernels to aggregate
+ * similarity scores across pattern chunks.
+ * 
+ * @param v1 Pointer to a float16 vector containing 16 floating-point values
+ * @return Sum of all 16 elements as a float
+ */
 float sum16(const float16 *v1);
 float sum16(const float16 *v1){
      float sum = 0.0;
@@ -51,6 +61,12 @@ float sum16(const float16 *v1){
 }
 
 
+/**
+ * Prints all 16 elements of a float16 vector for debugging purposes.
+ * 
+ * This utility function outputs all 16 components (s0-sf) of a float16 vector
+ * to stdout, separated by commas. Used for debugging and verifying data values.
+ */
 void print16(const float16 v1);
 void print16(const float16 v1){
      
@@ -74,6 +90,15 @@ void print16(const float16 v1){
 }
 
 
+/**
+ * OpenCL kernel to convert 8-bit unsigned char data to float.
+ * 
+ * This kernel takes an array of 8-bit unsigned integers and converts each element
+ * to a floating-point value. Used for loading EBSD pattern data from 8-bit images.
+ * 
+ * @param datain Input array of unsigned char (8-bit) values
+ * @param dataout Output array where each element is converted to float
+ */
 __kernel void nlloadpat8bit(__global uchar *datain, __global float *dataout){
   const unsigned long int x = get_global_id(0);
   uchar imVal =  datain[x];
@@ -81,6 +106,15 @@ __kernel void nlloadpat8bit(__global uchar *datain, __global float *dataout){
   dataout[x] = imValflt;
 }
 
+/**
+ * OpenCL kernel to convert 16-bit unsigned short data to float.
+ * 
+ * This kernel takes an array of 16-bit unsigned integers and converts each element
+ * to a floating-point value. Used for loading EBSD pattern data from 16-bit images.
+ * 
+ * @param datain Input array of unsigned short (16-bit) values
+ * @param dataout Output array where each element is converted to float
+ */
 __kernel void nlloadpat16bit(__global ushort *datain, __global float *dataout){
   const unsigned long int x = get_global_id(0);
   ushort imVal = datain[x];
@@ -88,11 +122,43 @@ __kernel void nlloadpat16bit(__global ushort *datain, __global float *dataout){
   dataout[x] = imValflt;
 }
 
+/**
+ * OpenCL kernel to pass through 32-bit float data.
+ * 
+ * This simple kernel copies float data from input to output without modification.
+ * Used when the input data is already in 32-bit float format.
+ * 
+ * @param datain Input array of float (32-bit) values
+ * @param dataout Output array receiving the same float values
+ */
 __kernel void nlloadpat32flt(__global float *datain, __global float *dataout){
   const unsigned long int x = get_global_id(0);
   dataout[x] = datain[x];
 }
 
+/**
+ * OpenCL kernel to calculate sigma values for pattern similarity metrics.
+ * 
+ * This kernel computes the local variance (sigma) of pattern intensities in a neighborhood
+ * around each pixel. It calculates how much patterns vary from their neighbors, which is used
+ * to determine appropriate weighting in the non-local means averaging.
+ * 
+ * The kernel:
+ * 1. Computes squared differences between the center pattern and neighboring patterns
+ * 2. Aggregates these differences across all pattern chunks (ndatchunk)
+ * 3. Finds the minimum variance for each pixel
+ * 4. Stores results in output arrays (sig, dg, ng)
+ * 
+ * @param data Input array of EBSD pattern data (float values)
+ * @param mask Input mask array indicating valid/invalid regions
+ * @param sig Output array for sigma values (local variance)
+ * @param dg Output array for difference scores between patterns
+ * @param ng Output array for neighbor counts used in calculations
+ * @param nn Search radius/neighborhood size parameter (half-width of search window)
+ * @param ndatchunk Number of pattern chunks being processed
+ * @param npatpoint Number of data points per pattern chunk
+ * @param maxlim Maximum intensity threshold for masking out saturated pixels
+ */
 __kernel void calcsigma( __global float *data, __global float16 *mask, 
       __global float *sig, 
       __global float *dg, __global float *ng,
@@ -202,6 +268,26 @@ __kernel void calcsigma( __global float *data, __global float16 *mask,
 }
 
 
+/**
+ * OpenCL kernel to normalize difference arrays used in weighting calculations.
+ * 
+ * This kernel normalizes the accumulated differences (d) by incorporating:
+ * - Local sigma values for each pixel
+ * - Neighbor counts to account for varying numbers of valid neighbors
+ * 
+ * The normalization formula incorporates the non-local means weighting:
+ *   normalized_diff = (diff - n*sigma²) / (σ√(2n))
+ * 
+ * This weighting scheme gives higher importance to patterns that are:
+ * - More similar (lower diff)
+ * - From regions with more neighbors
+ * - In areas of lower variance (more consistent patterns)
+ * 
+ * @param sigma Input array of sigma values (local variance) for each pixel
+ * @param n Input array of neighbor counts used in calculations
+ * @param d Output/working array for normalized differences (also used as input)
+ * @param nn Search radius parameter defining the neighborhood size
+ */
 __kernel void normd(
     const __global float *sigma, 
     const __global float *n, 
@@ -257,6 +343,35 @@ __kernel void normd(
 
 
 
+/**
+ * Main OpenCL kernel implementing the Non-local Pattern Averaging and Re-indexing (NLPAR) algorithm.
+ * 
+ * This is the primary kernel that performs pattern averaging by:
+ * 1. Computing similarity weights between a center pixel and its neighbors
+ * 2. Applying exponential weighting based on pattern differences
+ * 3. Averaging patterns using these weights to improve signal-to-noise ratio
+ * 
+ * The NLPAR algorithm works by:
+ * - For each pixel at (x,y), examining a search window of size (2*sr+1)×(2*sr+1)
+ * - Computing similarity scores between the center pattern and neighboring patterns
+ * - Calculating weights using exponential decay: w = exp(-λ·diff)
+ * - Averaging patterns weighted by these similarity scores
+ * 
+ * The kernel processes pattern data in chunks (ndatchunk) and outputs averaged patterns.
+ * 
+ * @param data Input array of EBSD pattern data (float values)
+ * @param mask Input mask array indicating valid/invalid regions for each pattern chunk
+ * @param sigma Input array of pre-computed sigma values (local variance) for weighting
+ * @param crlimits Array containing calculation limits: [x_offset, y_offset, ncols, nrows]
+ * @param dataout Output array receiving the averaged pattern data
+ * @param sr Search radius parameter defining neighborhood size (half-width of search window)
+ * @param ndatchunk Number of pattern chunks being processed
+ * @param npatpoint Number of data points per pattern chunk
+ * @param maxlim Maximum intensity threshold for masking out saturated pixels
+ * @param lam2 Lambda parameter controlling the exponential weighting strength (weight decay rate)
+ * @param dthresh Threshold for difference values below which weights are set to zero
+ * @param diff_offset Small offset added when center pixel is detected (to avoid self-weighting)
+ */
 __kernel void calcnlpar( 
       const __global float *data, 
       const __global float16 *mask, 
