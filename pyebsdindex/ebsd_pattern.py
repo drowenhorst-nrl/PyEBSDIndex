@@ -471,78 +471,76 @@ class UPFile(EBSDPatternFile):
       return -1
 
     try:
-      f = open(Path(self.filepath).expanduser(),'rb')
+      with open(Path(self.filepath).expanduser(),'rb') as f:
+        self.version = np.fromfile(f, dtype=np.uint32, count=1)[0]
+        if self.version == 1:
+          dat = np.fromfile(f, dtype=np.uint32, count=3)
+          self.patternW = dat[0]
+          self.patternH = dat[1]
+          self.filePos = dat[2]
+          self.nPatterns = np.int64((Path(self.filepath).expanduser().stat().st_size - 16) /
+                                  (self.patternW * self.patternH * (self.filedatatype(0).nbytes)))
+          if self.xStep is None:
+            self.xStep = 0.0
+          if self.yStep is None:
+            self.yStep = 0.0
+          if self.nCols is None:
+            self.nCols = np.uint64(self.nPatterns)
+          if self.nCols == 0:
+            self.nCols = np.uint64(self.nPatterns)
+          if self.nRows is None:
+            self.nRows = np.uint64(np.floor(self.nPatterns/self.nCols))
+
+        elif self.version >= 3:
+          dat = np.fromfile(f, dtype=np.uint32, count=3)
+          self.patternW = dat[0]
+          self.patternH = dat[1]
+          self.filePos = dat[2]
+          self.extraPatterns = np.fromfile(f, dtype=np.uint8, count=1)[0]
+          dat = np.fromfile(f, dtype=np.uint32, count=2)
+          self.nCols = np.uint64(dat[0])
+          self.nRows = np.uint64(dat[1])
+          self.nPatterns = np.int64(self.nCols.astype(np.uint64) * self.nRows.astype(np.uint64))
+          self.hexflag = np.fromfile(f, dtype=np.uint8, count=1)[0]
+          dat = np.fromfile(f, dtype=np.float64, count=2)
+          self.xStep = dat[0]
+          self.yStep = dat[1]
     except:
       print("File Not Found:",str(Path(self.filepath)))
       return -1
 
-    self.version = np.fromfile(f, dtype=np.uint32, count=1)[0]
-    if self.version == 1:
-      dat = np.fromfile(f, dtype=np.uint32, count=3)
-      self.patternW = dat[0]
-      self.patternH = dat[1]
-      self.filePos = dat[2]
-      self.nPatterns = np.int64((Path(self.filepath).expanduser().stat().st_size - 16) /
-                              (self.patternW * self.patternH * (self.filedatatype(0).nbytes)))
-      if self.xStep is None:
-        self.xStep = 0.0
-      if self.yStep is None:
-        self.yStep = 0.0
-      if self.nCols is None:
-        self.nCols = np.uint64(self.nPatterns)
-      if self.nCols == 0:
-        self.nCols = np.uint64(self.nPatterns)
-      if self.nRows is None:
-        self.nRows = np.uint64(np.floor(self.nPatterns/self.nCols))
-
-    elif self.version >= 3:
-      dat = np.fromfile(f, dtype=np.uint32, count=3)
-      self.patternW = dat[0]
-      self.patternH = dat[1]
-      self.filePos = dat[2]
-      self.extraPatterns = np.fromfile(f, dtype=np.uint8, count=1)[0]
-      dat = np.fromfile(f, dtype=np.uint32, count=2)
-      self.nCols = np.uint64(dat[0])
-      self.nRows = np.uint64(dat[1])
-      self.nPatterns = np.int64(self.nCols.astype(np.uint64) * self.nRows.astype(np.uint64))
-      self.hexflag = np.fromfile(f, dtype=np.uint8, count=1)[0]
-      dat = np.fromfile(f, dtype=np.float64, count=2)
-      self.xStep = dat[0]
-      self.yStep = dat[1]
-    f.close()
     return 0 #note this function uses multiple returns
 
   def pat_reader(self, patStart=0, nPatToRead=1):
     try:
-      f = open(Path(self.filepath).expanduser(),'rb')
+      with open(Path(self.filepath).expanduser(),'rb') as f:
+        f.seek(self.filePos)
+        nPerPat = self.patternW * self.patternH
+        typeread = self.filedatatype
+        typebyte = self.filedatatype(0).nbytes
+
+        f.seek(np.int64(np.int64(nPerPat) * np.int64(patStart) * typebyte), 1)
+        # chunksize = 1024
+        # nPats = nPatToRead
+        # nchunks = (np.ceil(nPats / chunksize)).astype(np.int64)
+        # chunk_start_end = [[i * chunksize, (i + 1) * chunksize] for i in range(nchunks)]
+        # chunk_start_end[-1][1] = nPats
+
+
+        # readpats = np.zeros((nPatToRead,self.patternH,self.patternW), dtype = typeread)
+        #
+        # for chnk in chunk_start_end:
+        #   nchnk = int(chnk[1] - chnk[0])
+        #   readpatstemp = np.fromfile(f, dtype=typeread, count=np.int64(np.int64(nchnk) * np.int64(nPerPat)))
+        #   readpatstemp = readpatstemp.reshape(nchnk, self.patternH, self.patternW)
+        #   readpats[chnk[0]:chnk[1],:,:] = readpatstemp
+
+        readpats = np.fromfile(f,dtype=typeread,count=np.int64(np.int64(nPatToRead) * np.int64(nPerPat)))
+        readpats = readpats.reshape(nPatToRead,self.patternH,self.patternW)
     except:
       print("File Not Found:",str(Path(self.filepath)))
       return -1
 
-    f.seek(self.filePos)
-    nPerPat = self.patternW * self.patternH
-    typeread = self.filedatatype
-    typebyte = self.filedatatype(0).nbytes
-
-    f.seek(np.int64(np.int64(nPerPat) * np.int64(patStart) * typebyte), 1)
-    # chunksize = 1024
-    # nPats = nPatToRead
-    # nchunks = (np.ceil(nPats / chunksize)).astype(np.int64)
-    # chunk_start_end = [[i * chunksize, (i + 1) * chunksize] for i in range(nchunks)]
-    # chunk_start_end[-1][1] = nPats
-
-
-    # readpats = np.zeros((nPatToRead,self.patternH,self.patternW), dtype = typeread)
-    #
-    # for chnk in chunk_start_end:
-    #   nchnk = int(chnk[1] - chnk[0])
-    #   readpatstemp = np.fromfile(f, dtype=typeread, count=np.int64(np.int64(nchnk) * np.int64(nPerPat)))
-    #   readpatstemp = readpatstemp.reshape(nchnk, self.patternH, self.patternW)
-    #   readpats[chnk[0]:chnk[1],:,:] = readpatstemp
-
-    readpats = np.fromfile(f,dtype=typeread,count=np.int64(np.int64(nPatToRead) * np.int64(nPerPat)))
-    readpats = readpats.reshape(nPatToRead,self.patternH,self.patternW)
-    f.close()
     yx = np.unravel_index(np.arange(np.int64(patStart), np.int64(patStart+nPatToRead), dtype = np.uint64),
                           (np.int64(self.nRows), np.int64(self.nCols)))
 
@@ -579,51 +577,84 @@ class UPFile(EBSDPatternFile):
 
     try:
       if os.path.isfile(Path(self.filepath).expanduser()):
-        f = open(Path(filepath).expanduser(), 'r+b')
-        f.seek(0)
+        with open(Path(filepath).expanduser(),'r+b') as f:
+          f.seek(0)
+          if self.version is None:
+            self.version = 3
+
+          np.asarray(self.version, dtype=np.uint32).tofile(f)
+          if self.version == 1:
+            if self.filePos is None:
+              self.filePos = 16
+            np.asarray(self.patternW,dtype=np.uint32).tofile(f)
+            np.asarray(self.patternH,dtype=np.uint32).tofile(f)
+            np.asarray(self.filePos,dtype=np.uint32).tofile(f)
+
+          elif self.version >= 3:
+            if self.filePos is None:
+              self.filePos = 42
+            np.asarray(self.patternW,dtype=np.uint32).tofile(f)
+            np.asarray(self.patternH,dtype=np.uint32).tofile(f)
+            np.asarray(self.filePos,dtype=np.uint32).tofile(f)
+            np.asarray(self.extraPatterns,dtype=np.uint8).tofile(f)
+            np.asarray(self.nCols,dtype=np.uint32).tofile(f)
+            np.asarray(self.nRows,dtype=np.uint32).tofile(f)
+            np.asarray(self.hexflag,dtype=np.uint8).tofile(f)
+            np.asarray(self.xStep,dtype=np.float64).tofile(f)
+            np.asarray(self.yStep,dtype=np.float64).tofile(f)
+
+          if writeBlank == True:
+            typewrite = self.filedatatype
+            # if self.bitdepth == 8:
+            #   type = np.uint8
+            # if self.bitdepth == 16:
+            #   type = np.uint16
+
+            blank = np.zeros((self.patternH, self.patternW), dtype=typewrite)
+            for j in range(self.nRows):
+              for i in range(self.nCols):
+                blank.tofile(f)
       else:
-        f = open(Path(filepath).expanduser(),'w+b')
-        f.seek(0)
+        with open(Path(filepath).expanduser(),'w+b') as f:
+          f.seek(0)
+          if self.version is None:
+            self.version = 3
+
+          np.asarray(self.version, dtype=np.uint32).tofile(f)
+          if self.version == 1:
+            if self.filePos is None:
+              self.filePos = 16
+            np.asarray(self.patternW,dtype=np.uint32).tofile(f)
+            np.asarray(self.patternH,dtype=np.uint32).tofile(f)
+            np.asarray(self.filePos,dtype=np.uint32).tofile(f)
+
+          elif self.version >= 3:
+            if self.filePos is None:
+              self.filePos = 42
+            np.asarray(self.patternW,dtype=np.uint32).tofile(f)
+            np.asarray(self.patternH,dtype=np.uint32).tofile(f)
+            np.asarray(self.filePos,dtype=np.uint32).tofile(f)
+            np.asarray(self.extraPatterns,dtype=np.uint8).tofile(f)
+            np.asarray(self.nCols,dtype=np.uint32).tofile(f)
+            np.asarray(self.nRows,dtype=np.uint32).tofile(f)
+            np.asarray(self.hexflag,dtype=np.uint8).tofile(f)
+            np.asarray(self.xStep,dtype=np.float64).tofile(f)
+            np.asarray(self.yStep,dtype=np.float64).tofile(f)
+
+          if writeBlank == True:
+            typewrite = self.filedatatype
+            # if self.bitdepth == 8:
+            #   type = np.uint8
+            # if self.bitdepth == 16:
+            #   type = np.uint16
+
+            blank = np.zeros((self.patternH, self.patternW), dtype=typewrite)
+            for j in range(self.nRows):
+              for i in range(self.nCols):
+                blank.tofile(f)
     except:
       print("File Not Found:", str(Path(filepath)))
       return -1
-
-    if self.version is None:
-      self.version = 3
-
-    np.asarray(self.version, dtype=np.uint32).tofile(f)
-    if self.version == 1:
-      if self.filePos is None:
-        self.filePos = 16
-      np.asarray(self.patternW,dtype=np.uint32).tofile(f)
-      np.asarray(self.patternH,dtype=np.uint32).tofile(f)
-      np.asarray(self.filePos,dtype=np.uint32).tofile(f)
-
-    elif self.version >= 3:
-      if self.filePos is None:
-        self.filePos = 42
-      np.asarray(self.patternW,dtype=np.uint32).tofile(f)
-      np.asarray(self.patternH,dtype=np.uint32).tofile(f)
-      np.asarray(self.filePos,dtype=np.uint32).tofile(f)
-      np.asarray(self.extraPatterns,dtype=np.uint8).tofile(f)
-      np.asarray(self.nCols,dtype=np.uint32).tofile(f)
-      np.asarray(self.nRows,dtype=np.uint32).tofile(f)
-      np.asarray(self.hexflag,dtype=np.uint8).tofile(f)
-      np.asarray(self.xStep,dtype=np.float64).tofile(f)
-      np.asarray(self.yStep,dtype=np.float64).tofile(f)
-
-    if writeBlank == True:
-      typewrite = self.filedatatype
-      # if self.bitdepth == 8:
-      #   type = np.uint8
-      # if self.bitdepth == 16:
-      #   type = np.uint16
-
-      blank = np.zeros((self.patternH, self.patternW), dtype=typewrite)
-      for j in range(self.nRows):
-        for i in range(self.nCols):
-          blank.tofile(f)
-    f.close()
 
 
   def pat_writer(self, pat2write, patStart, nPatToWrite, typewrite):
@@ -728,47 +759,43 @@ class EBSPFile(EBSDPatternFile):
       self.filepath = path
 
     try:
-      f = open(Path(self.filepath).expanduser(), 'rb')
-    except:
-      print("File Not Found:", str(Path(self.filepath)))
-      return -1
+      with open(Path(self.filepath).expanduser(), 'rb') as f:
+        f.seek(0)
+        version = np.fromfile(f, dtype=np.int64, count=1)
+        version = np.int64(-1*version)
+        if version <= 0:
+          self.version = 0
+        else:
+          self.version = version
 
-    f.seek(0)
-    version = np.fromfile(f, dtype=np.int64, count=1)
-    version = np.int64(-1*version)
-    if version <= 0:
-      self.version = 0
-    else:
-      self.version = version
+        per_pat_header = 4
+        if self.version >= 5:
+          per_pat_header = 6
 
-    per_pat_header = 4
-    if self.version >= 5:
-      per_pat_header = 6
+        if self.version >= 1:
+          memoffset = 8
+          if self.version >= 4:
+            self.mysterybyte = np.fromfile(f, dtype=np.uint8, count=1)
+            memoffset = 9
+          #loc0 = int(np.fromfile(f, dtype=np.uint64, count=1))
+          #currentloc = f.tell()
+          #loc1 = loc0
+          #npat = 0
 
-    if self.version >= 1:
-      memoffset = 8
-      if self.version >= 4:
-        self.mysterybyte = np.fromfile(f, dtype=np.uint8, count=1)
-        memoffset = 9
-      #loc0 = int(np.fromfile(f, dtype=np.uint64, count=1))
-      #currentloc = f.tell()
-      #loc1 = loc0
-      #npat = 0
+          #while loc1 != currentloc:
+          #  loc11 = int(np.fromfile(f, dtype=np.uint64, count = 1))
+          #  loc1 = min([loc1, loc11])
+          #  currentloc = f.tell()
 
-      #while loc1 != currentloc:
-      #  loc11 = int(np.fromfile(f, dtype=np.uint64, count = 1))
-      #  loc1 = min([loc1, loc11])
-      #  currentloc = f.tell()
+          # do the same as above, but in memory ... so much faster
+          loc0 = 0
+          counter = 0
+          while loc0 == 0: # check for non-stored points.
+            loc0 = np.int64(np.fromfile(f, dtype=np.uint64, count=1))[0]
+            counter += 1
+          f.seek(-8*counter, 1) # move back 8 bytes (or however far we needed to move into the file to find a legitamte offset.
 
-      # do the same as above, but in memory ... so much faster
-      loc0 = 0
-      counter = 0
-      while loc0 == 0: # check for non-stored points.
-        loc0 = np.int64(np.fromfile(f, dtype=np.uint64, count=1))[0]
-        counter += 1
-      f.seek(-8*counter, 1) # move back 8 bytes (or however far we needed to move into the file to find a legitamte offset.
-
-      loc02N = np.fromfile(f, dtype=np.uint64, count=np.int64((loc0)/8+0.001))
+          loc02N = np.fromfile(f, dtype=np.uint64, count=np.int64((loc0)/8+0.001))
 
 
       if self.version <=4:
@@ -915,47 +942,46 @@ class EBSPFile(EBSDPatternFile):
         self.nCols = np.uint64(1)
       if self.nRows is None:
         self.nRows = np.uint64(np.floor(self.nPatterns / self.nCols))
-    f.close()
-
+    except:
+      print("File Not Found:", str(Path(self.filepath)))
+      return -1
     return 0  # note this function uses multiple returns
 
   def pat_reader(self, patStart=0, nPatToRead=1):
     try:
-      f = open(Path(self.filepath).expanduser(), 'rb')
+      with open(Path(self.filepath).expanduser(), 'rb') as f:
+        readpats = np.zeros((nPatToRead, self.patternH * self.patternW), dtype=self.filedatatype)
+        xyloc = np.zeros((nPatToRead, 2), dtype=np.float64)
+        # f.seek(self.filePos)
+        nPerPat = self.patternW * self.patternH
+        typeread = self.filedatatype
+        typebyte = self.filedatatype(0).nbytes
+
+        readxypos = self.hasxypos
+        if self.version == 1:
+          xyoffset = 0
+        else:
+          xyoffset = 1
+
+        per_pat_head = 16
+        if self.version >= 5:
+          per_pat_head = 24
+
+        for i in range(np.int64(patStart), np.int64(patStart + nPatToRead)):
+          ii = np.int64(i - patStart)
+          if self.filePos[i] > 0:
+            f.seek(np.int64(self.filePos[i] + per_pat_head))
+            readpats[ii, :] = np.fromfile(f, dtype=typeread, count=np.int64(nPerPat))
+            if readxypos == True:
+              f.seek(xyoffset, 1)
+              xyloc[ii, 0] = np.fromfile(f, dtype=np.float64, count=1)
+              f.seek(xyoffset, 1)
+              xyloc[ii, 1] = np.fromfile(f, dtype=np.float64, count=1)
+
+        readpats = readpats.reshape(nPatToRead, self.patternH, self.patternW)
     except:
       print("File Not Found:", str(Path(self.filepath)))
       return -1
-
-    readpats = np.zeros((nPatToRead, self.patternH * self.patternW), dtype=self.filedatatype)
-    xyloc = np.zeros((nPatToRead, 2), dtype=np.float64)
-    # f.seek(self.filePos)
-    nPerPat = self.patternW * self.patternH
-    typeread = self.filedatatype
-    typebyte = self.filedatatype(0).nbytes
-
-    readxypos = self.hasxypos
-    if self.version == 1:
-      xyoffset = 0
-    else:
-      xyoffset = 1
-
-    per_pat_head = 16
-    if self.version >= 5:
-      per_pat_head = 24
-
-    for i in range(np.int64(patStart), np.int64(patStart + nPatToRead)):
-      ii = np.int64(i - patStart)
-      if self.filePos[i] > 0:
-        f.seek(np.int64(self.filePos[i] + per_pat_head))
-        readpats[ii, :] = np.fromfile(f, dtype=typeread, count=np.int64(nPerPat))
-        if readxypos == True:
-          f.seek(xyoffset, 1)
-          xyloc[ii, 0] = np.fromfile(f, dtype=np.float64, count=1)
-          f.seek(xyoffset, 1)
-          xyloc[ii, 1] = np.fromfile(f, dtype=np.float64, count=1)
-
-    readpats = readpats.reshape(nPatToRead, self.patternH, self.patternW)
-    f.close()
 
     # yx = np.unravel_index(np.arange(int(patStart), int(patStart+nPatToRead), dtype = np.uint64),
     #                       (int(self.nRows), int(self.nCols)))
@@ -984,108 +1010,161 @@ class EBSPFile(EBSDPatternFile):
 
     try:
       if os.path.isfile(Path(self.filepath).expanduser()):
-        f = open(Path(filepath).expanduser(), 'r+b')
-        f.seek(0)
+        with open(Path(filepath).expanduser(),'r+b') as f:
+          f.seek(0)
+          if self.version is None:
+            self.version = 2
+
+          if self.version > 0:
+            version = np.uint64(-self.version)
+            np.asarray(version, dtype=np.uint64).tofile(f)
+
+          if self.version >= 0:
+            if self.filePos is None:
+              file_head_length = 0
+              pat_footer_length = 0
+              if self.version >= 1:
+                file_head_length = 8
+                pat_footer_length = 16
+              if self.version >= 2:
+                if self.hasxypos == True:
+                  pat_footer_length = 18
+                else:
+                  pat_footer_length = 1
+
+              if self.version >= 4:
+                file_head_length = 9
+
+              self.filePos = np.arange(
+                self.nPatterns, dtype=np.uint64)*(16+pat_footer_length+self.patternH*self.patternW*self.filedatatype(0).nbytes)\
+                             +file_head_length+8*self.nPatterns
+
+            if self.version >= 4:
+              np.uint8(0).tofile(f)
+
+            np.asarray(self.filePos, dtype=np.uint64).tofile(f)
+
+          if writeBlank == True:
+            typewrite = self.filedatatype
+            # if self.bitdepth == 8:
+            #   type = np.uint8
+            # if self.bitdepth == 16:
+            #   type = np.uint16
+
+            blank = np.zeros((self.patternH, self.patternW), dtype=typewrite)
+            pathead = np.array([0, self.patternH, self.patternW,
+                                self.patternH * self.patternW * self.filedatatype(0).nbytes], dtype=np.uint32)
+
+            for j in range(self.nRows):
+              for i in range(self.nCols):
+                pathead.tofile(f)
+                blank.tofile(f)
+                if (self.version > 0) and self.hasxypos:
+                  if self.version >= 2:
+                    np.uint8(1).tofile(f)
+                  np.float64(i * self.xStep - 0.5*(self.nCols*self.xStep)).tofile(f)
+                  if self.version >= 2:
+                    np.uint8(1).tofile(f)
+                  np.float64(j * self.yStep - 0.5*(self.nRows*self.yStep)).tofile(f)
+                else: # no xy_pos info
+                  if self.version >= 2:
+                    np.uint8(0).tofile(f)
       else:
-        f = open(Path(filepath).expanduser(), 'w+b')
-        f.seek(0)
+        with open(Path(filepath).expanduser(),'w+b') as f:
+          f.seek(0)
+          if self.version is None:
+            self.version = 2
+
+          if self.version > 0:
+            version = np.uint64(-self.version)
+            np.asarray(version, dtype=np.uint64).tofile(f)
+
+          if self.version >= 0:
+            if self.filePos is None:
+              file_head_length = 0
+              pat_footer_length = 0
+              if self.version >= 1:
+                file_head_length = 8
+                pat_footer_length = 16
+              if self.version >= 2:
+                if self.hasxypos == True:
+                  pat_footer_length = 18
+                else:
+                  pat_footer_length = 1
+
+              if self.version >= 4:
+                file_head_length = 9
+
+              self.filePos = np.arange(
+                self.nPatterns, dtype=np.uint64)*(16+pat_footer_length+self.patternH*self.patternW*self.filedatatype(0).nbytes)\
+                             +file_head_length+8*self.nPatterns
+
+            if self.version >= 4:
+              np.uint8(0).tofile(f)
+
+            np.asarray(self.filePos, dtype=np.uint64).tofile(f)
+
+          if writeBlank == True:
+            typewrite = self.filedatatype
+            # if self.bitdepth == 8:
+            #   type = np.uint8
+            # if self.bitdepth == 16:
+            #   type = np.uint16
+
+            blank = np.zeros((self.patternH, self.patternW), dtype=typewrite)
+            pathead = np.array([0, self.patternH, self.patternW,
+                                self.patternH * self.patternW * self.filedatatype(0).nbytes], dtype=np.uint32)
+
+            for j in range(self.nRows):
+              for i in range(self.nCols):
+                pathead.tofile(f)
+                blank.tofile(f)
+                if (self.version > 0) and self.hasxypos:
+                  if self.version >= 2:
+                    np.uint8(1).tofile(f)
+                  np.float64(i * self.xStep - 0.5*(self.nCols*self.xStep)).tofile(f)
+                  if self.version >= 2:
+                    np.uint8(1).tofile(f)
+                  np.float64(j * self.yStep - 0.5*(self.nRows*self.yStep)).tofile(f)
+                else: # no xy_pos info
+                  if self.version >= 2:
+                    np.uint8(0).tofile(f)
     except:
       print("File Not Found:", str(Path(filepath)))
       return -1
 
-    if self.version is None:
-      self.version = 2
-
-    if self.version > 0:
-      version = np.uint64(-self.version)
-      np.asarray(version, dtype=np.uint64).tofile(f)
-
-    if self.version >= 0:
-      if self.filePos is None:
-        file_head_length = 0
-        pat_footer_length = 0
-        if self.version >= 1:
-          file_head_length = 8
-          pat_footer_length = 16
-        if self.version >= 2:
-          if self.hasxypos == True:
-            pat_footer_length = 18
-          else:
-            pat_footer_length = 1
-
-        if self.version >= 4:
-          file_head_length = 9
-
-        self.filePos = np.arange(
-          self.nPatterns, dtype=np.uint64)*(16+pat_footer_length+self.patternH*self.patternW*self.filedatatype(0).nbytes)\
-                       +file_head_length+8*self.nPatterns
-
-      if self.version >= 4:
-        np.uint8(0).tofile(f)
-
-      np.asarray(self.filePos, dtype=np.uint64).tofile(f)
-
-    if writeBlank == True:
-      typewrite = self.filedatatype
-      # if self.bitdepth == 8:
-      #   type = np.uint8
-      # if self.bitdepth == 16:
-      #   type = np.uint16
-
-      blank = np.zeros((self.patternH, self.patternW), dtype=typewrite)
-      pathead = np.array([0, self.patternH, self.patternW,
-                          self.patternH * self.patternW * self.filedatatype(0).nbytes], dtype=np.uint32)
-
-      for j in range(self.nRows):
-        for i in range(self.nCols):
-          pathead.tofile(f)
-          blank.tofile(f)
-          if (self.version > 0) and self.hasxypos:
-            if self.version >= 2:
-              np.uint8(1).tofile(f)
-            np.float64(i * self.xStep - 0.5*(self.nCols*self.xStep)).tofile(f)
-            if self.version >= 2:
-              np.uint8(1).tofile(f)
-            np.float64(j * self.yStep - 0.5*(self.nRows*self.yStep)).tofile(f)
-          else: # no xy_pos info
-            if self.version >= 2:
-              np.uint8(0).tofile(f)
-    f.close()
-
   def pat_writer(self, pat2write, patStart, nPatToWrite, typewrite=None):
     try:
-      f = open(Path(self.filepath).expanduser(), 'br+')
-      f.seek(0, 0)
+      with open(Path(self.filepath).expanduser(), 'br+') as f:
+        f.seek(0, 0)
+        nPerPat = self.patternW * self.patternH
+        nPerPatByte = nPerPat * typewrite(0).nbytes
+        pathead = np.array([0, np.int64(self.patternH), np.int64(self.patternW),
+                            np.int64(self.patternH * self.patternW * self.filedatatype(0).nbytes)], dtype=np.uint32)
+
+        write_xypos = self.hasxypos
+
+        for i in range(np.int64(patStart), np.int64(patStart + nPatToWrite)):
+          if np.int64(self.filePos[i]) > 0:
+            f.seek(np.int64(self.filePos[i]), 0)
+            ii = np.int64(i - patStart)
+            pathead.tofile(f)
+            pat2write[ii, :, :].tofile(f)
+            if write_xypos:
+              if self.version >= 2:
+                np.uint8(1).tofile(f)
+              yx = np.array(np.unravel_index(i, (self.nRows, self.nCols))).astype(np.float64)
+              yx[1] -= float(self.nCols * 0.5)
+              yx[1] *= self.xStep
+              yx[0] -= float(self.nRows * 0.5)
+              yx[0] *= self.yStep
+              np.float64(yx[1]).tofile(f)
+              if self.version >= 2:
+                np.uint8(1).tofile(f)
+              np.float64(yx[0]).tofile(f)
     except:
       print("File Not Found:", str(Path(self.filepath)))
       return -1
-
-    nPerPat = self.patternW * self.patternH
-    nPerPatByte = nPerPat * typewrite(0).nbytes
-    pathead = np.array([0, np.int64(self.patternH), np.int64(self.patternW),
-                        np.int64(self.patternH * self.patternW * self.filedatatype(0).nbytes)], dtype=np.uint32)
-
-    write_xypos = self.hasxypos
-
-    for i in range(np.int64(patStart), np.int64(patStart + nPatToWrite)):
-      if np.int64(self.filePos[i]) > 0:
-        f.seek(np.int64(self.filePos[i]), 0)
-        ii = np.int64(i - patStart)
-        pathead.tofile(f)
-        pat2write[ii, :, :].tofile(f)
-        if write_xypos:
-          if self.version >= 2:
-            np.uint8(1).tofile(f)
-          yx = np.array(np.unravel_index(i, (self.nRows, self.nCols))).astype(np.float64)
-          yx[1] -= float(self.nCols * 0.5)
-          yx[1] *= self.xStep
-          yx[0] -= float(self.nRows * 0.5)
-          yx[0] *= self.yStep
-          np.float64(yx[1]).tofile(f)
-          if self.version >= 2:
-            np.uint8(1).tofile(f)
-          np.float64(yx[0]).tofile(f)
-    f.close()
 
 class TFPatFile(EBSDPatternFile):
   """
@@ -1115,60 +1194,58 @@ class TFPatFile(EBSDPatternFile):
       self.filepath = path
 
     try:
-      f = open(Path(self.filepath).expanduser(), 'rb')
+      with open(Path(self.filepath).expanduser(), 'rb') as f:
+        f.seek(0)
+        version = np.fromfile(f, dtype=np.uint32, count=1)
+
+        if version <= 0:
+          self.version = 0
+        else:
+          self.version = version
+
+        if self.version >= 1:
+          self.filedatatype = np.uint16
+          header = np.fromfile(f, dtype=np.uint32, count=4)
+          self.nCols = header[0]
+          self.nRows = header[1]
+          self.patternW = header[2]
+          self.patternH = header[3]
+
+          isscan = np.fromfile(f, dtype=np.int16, count=1)
+          bitdepth = np.fromfile(f, dtype=np.uint8, count=1)
+          self.bitdepth = bitdepth[0]
+          hasback = np.fromfile(f, dtype=np.int16, count=1)
+          if hasback < 0:
+            self.hasbackground = True
+            self.filePos = 25 + self.patternW * self.patternH * self.filedatatype(0).nbytes
+          else:
+            self.hasbackground = False
+            self.filePos = 25
+
+
+          if isscan < 0:
+            self.nPatterns = np.int64((self.nCols)) * self.nRows
+          else:
+            f.seek(0,2) # go to EOF
+            fsize = f.tell() # get file size
+
+            self.nPatterns = np.int64(fsize - self.filePos)//(np.int64((self.patternH) * self.patternW * 2 + 8))
+        #seekloc = -1 * self.nPatterns * (self.patternH * self.patternW * self.filedatatype(0).nbytes + 8)
+
+        #f.seek(seekloc)
+        if self.isscan == False:
+          xypix = []
+          f.seek(self.filePos)
+          stride = np.int64(self.patternW * self.patternH)
+          for ii in range(np.int64(self.nPatterns)):
+            loc = np.fromfile(f, dtype=np.uint32, count=2)
+            xypix.append(loc)
+            f.seek(stride,1)
+
+          self.xypx = np.array(xypix, dtype = np.uint32)
     except:
       print("File Not Found:", str(Path(self.filepath)))
       return -1
-
-    f.seek(0)
-    version = np.fromfile(f, dtype=np.uint32, count=1)
-
-    if version <= 0:
-      self.version = 0
-    else:
-      self.version = version
-
-    if self.version >= 1:
-      self.filedatatype = np.uint16
-      header = np.fromfile(f, dtype=np.uint32, count=4)
-      self.nCols = header[0]
-      self.nRows = header[1]
-      self.patternW = header[2]
-      self.patternH = header[3]
-
-      isscan = np.fromfile(f, dtype=np.int16, count=1)
-      bitdepth = np.fromfile(f, dtype=np.uint8, count=1)
-      self.bitdepth = bitdepth[0]
-      hasback = np.fromfile(f, dtype=np.int16, count=1)
-      if hasback < 0:
-        self.hasbackground = True
-        self.filePos = 25 + self.patternW * self.patternH * self.filedatatype(0).nbytes
-      else:
-        self.hasbackground = False
-        self.filePos = 25
-
-
-      if isscan < 0:
-        self.nPatterns = np.int64((self.nCols)) * self.nRows
-      else:
-        f.seek(0,2) # go to EOF
-        fsize = f.tell() # get file size
-
-        self.nPatterns = np.int64(fsize - self.filePos)//(np.int64((self.patternH) * self.patternW * 2 + 8))
-      #seekloc = -1 * self.nPatterns * (self.patternH * self.patternW * self.filedatatype(0).nbytes + 8)
-
-      #f.seek(seekloc)
-    if self.isscan == False:
-      xypix = []
-      f.seek(self.filePos)
-      stride = np.int64(self.patternW * self.patternH)
-      for ii in range(np.int64(self.nPatterns)):
-        loc = np.fromfile(f, dtype=np.uint32, count=2)
-        xypix.append(loc)
-        f.seek(stride,1)
-
-      self.xypx = np.array(xypix, dtype = np.uint32)
-    f.close()
     # read in a stored background pattern
     if self.hasbackground:
       back = self.read_backgroundpattern()
@@ -1191,52 +1268,49 @@ class TFPatFile(EBSDPatternFile):
     #filepath = str(root / Path(Path(self.filepath).stem + '.ebsd'))
     path = Path(str(self.filepath)).expanduser()
     try:
-      f = open(path.with_suffix('.ebsd'), 'rb')
+      with open(path.with_suffix('.ebsd'), 'rb') as f:
+        f.seek(-45, 2)
+        step = np.fromfile(f, dtype=np.float64, count=1)
+        if (step > 0) and (step < 2000): # reason here is pretty broad.
+          self.xStep = step[0]
+          self.yStep = step[0]
     except:
       print("File Not Found:", path)
       return -1
 
-    f.seek(-45, 2)
-    step = np.fromfile(f, dtype=np.float64, count=1)
-    if (step > 0) and (step < 2000): # reason here is pretty broad.
-      self.xStep = step[0]
-      self.yStep = step[0]
-
 
   def pat_reader(self, patStart=0, nPatToRead=1):
     try:
-      f = open(Path(self.filepath).expanduser(), 'rb')
+      with open(Path(self.filepath).expanduser(), 'rb') as f:
+        #readpats = np.zeros((nPatToRead, self.patternH * self.patternW), dtype=self.filedatatype)
+        xyloc = np.zeros((nPatToRead, 2), dtype=np.float64)
+        # f.seek(self.filePos)
+        nPerPat = self.patternW * self.patternH
+        typeread = self.filedatatype
+        typebyte = self.filedatatype(0).nbytes
+
+        readxypos = self.hasxypos
+        if self.version == 1:
+          xyoffset = 0
+        else:
+          xyoffset = 1
+
+
+        byteperpat = typebyte * nPerPat + 8
+        dtyperead = np.dtype([('loc', np.uint32, (2)), ('pat', np.uint16, (self.patternH, self.patternW))])
+
+        f.seek( np.int64(self.filePos + byteperpat * np.int64(patStart)) )
+        dat = np.fromfile(f, dtype=dtyperead, count=np.int64(nPatToRead))
+        #print(dat.shape, dat['pat'].shape)
+
+        readpats = dat['pat'].copy()
+        xyloc = dat['loc'].astype(np.float32)
+        # readpats = dat['pat'].reshape()
+
+        readpats = readpats.reshape(nPatToRead, self.patternH, self.patternW)
     except:
       print("File Not Found:", str(Path(self.filepath)))
       return -1
-
-    #readpats = np.zeros((nPatToRead, self.patternH * self.patternW), dtype=self.filedatatype)
-    xyloc = np.zeros((nPatToRead, 2), dtype=np.float64)
-    # f.seek(self.filePos)
-    nPerPat = self.patternW * self.patternH
-    typeread = self.filedatatype
-    typebyte = self.filedatatype(0).nbytes
-
-    readxypos = self.hasxypos
-    if self.version == 1:
-      xyoffset = 0
-    else:
-      xyoffset = 1
-
-
-    byteperpat = typebyte * nPerPat + 8
-    dtyperead = np.dtype([('loc', np.uint32, (2)), ('pat', np.uint16, (self.patternH, self.patternW))])
-
-    f.seek( np.int64(self.filePos + byteperpat * np.int64(patStart)) )
-    dat = np.fromfile(f, dtype=dtyperead, count=np.int64(nPatToRead))
-    #print(dat.shape, dat['pat'].shape)
-
-    readpats = dat['pat'].copy()
-    xyloc = dat['loc'].astype(np.float32)
-    # readpats = dat['pat'].reshape()
-
-    readpats = readpats.reshape(nPatToRead, self.patternH, self.patternW)
-    f.close()
 
     # yx = np.unravel_index(np.arange(int(patStart), int(patStart+nPatToRead), dtype = np.uint64),
     #                       (int(self.nRows), int(self.nCols)))
@@ -1258,84 +1332,112 @@ class TFPatFile(EBSDPatternFile):
 
     try:
       if os.path.isfile(Path(self.filepath).expanduser()):
-        f = open(Path(filepath).expanduser(), 'r+b')
-        f.seek(0)
+        with open(Path(filepath).expanduser(),'r+b') as f:
+          f.seek(0)
+          if self.version >= 1:
+            version = np.uint32(self.version)
+            np.asarray(version, dtype=np.uint32).tofile(f)
+
+          if self.version >= 1:
+            np.asarray(self.nCols, dtype=np.uint32).tofile(f)
+            np.asarray(self.nRows, dtype=np.uint32).tofile(f)
+            np.asarray(self.patternW, dtype=np.uint32).tofile(f)
+            np.asarray(self.patternH, dtype=np.uint32).tofile(f)
+            if self.isscan == False:
+              np.asarray(0, dtype=np.int16).tofile(f)
+            else:
+              np.asarray(-1, dtype=np.int16).tofile(f)
+            np.asarray(self.bitdepth, dtype=np.uint8).tofile(f)
+            if self.hasbackground == False:
+              np.asarray(0, dtype=np.int16).tofile(f)
+            else: # there should be a background to write.
+              np.asarray(-1, dtype=np.int16).tofile(f)
+              background = np.zeros((self.patternH, self.patternW), dtype=np.uint16)
+              if self.background != np.ndarray:
+                pass
+              else:
+                if self.background.size != np.int64(self.patternH * self.patternW):
+                  pass
+                else:
+                  background = self.background.astype(self.filedatatype)
+              background.tofile(f)
+
+          if writeBlank == True:
+            typewrite = self.filedatatype
+            dtyperead = np.dtype([('loc', np.uint32, (2)), ('pat', np.uint16, (self.patternH, self.patternW))])
+
+            f.seek(np.uint64(self.nPatterns * dtyperead.itemsize -1))
+            np.asarray(0, dtype=np.uint8).tofile(f)
       else:
-        f = open(Path(filepath).expanduser(), 'w+b')
-        f.seek(0)
+        with open(Path(filepath).expanduser(),'w+b') as f:
+          f.seek(0)
+          if self.version >= 1:
+            version = np.uint32(self.version)
+            np.asarray(version, dtype=np.uint32).tofile(f)
+
+          if self.version >= 1:
+            np.asarray(self.nCols, dtype=np.uint32).tofile(f)
+            np.asarray(self.nRows, dtype=np.uint32).tofile(f)
+            np.asarray(self.patternW, dtype=np.uint32).tofile(f)
+            np.asarray(self.patternH, dtype=np.uint32).tofile(f)
+            if self.isscan == False:
+              np.asarray(0, dtype=np.int16).tofile(f)
+            else:
+              np.asarray(-1, dtype=np.int16).tofile(f)
+            np.asarray(self.bitdepth, dtype=np.uint8).tofile(f)
+            if self.hasbackground == False:
+              np.asarray(0, dtype=np.int16).tofile(f)
+            else: # there should be a background to write.
+              np.asarray(-1, dtype=np.int16).tofile(f)
+              background = np.zeros((self.patternH, self.patternW), dtype=np.uint16)
+              if self.background != np.ndarray:
+                pass
+              else:
+                if self.background.size != np.int64(self.patternH * self.patternW):
+                  pass
+                else:
+                  background = self.background.astype(self.filedatatype)
+              background.tofile(f)
+
+          if writeBlank == True:
+            typewrite = self.filedatatype
+            dtyperead = np.dtype([('loc', np.uint32, (2)), ('pat', np.uint16, (self.patternH, self.patternW))])
+
+            f.seek(np.uint64(self.nPatterns * dtyperead.itemsize -1))
+            np.asarray(0, dtype=np.uint8).tofile(f)
     except:
       print("File Not Found:", str(Path(filepath)))
       return -1
 
-    if self.version >= 1:
-      version = np.uint32(self.version)
-      np.asarray(version, dtype=np.uint32).tofile(f)
-
-    if self.version >= 1:
-      np.asarray(self.nCols, dtype=np.uint32).tofile(f)
-      np.asarray(self.nRows, dtype=np.uint32).tofile(f)
-      np.asarray(self.patternW, dtype=np.uint32).tofile(f)
-      np.asarray(self.patternH, dtype=np.uint32).tofile(f)
-      if self.isscan == False:
-        np.asarray(0, dtype=np.int16).tofile(f)
-      else:
-        np.asarray(-1, dtype=np.int16).tofile(f)
-      np.asarray(self.bitdepth, dtype=np.uint8).tofile(f)
-      if self.hasbackground == False:
-        np.asarray(0, dtype=np.int16).tofile(f)
-      else: # there should be a background to write.
-        np.asarray(-1, dtype=np.int16).tofile(f)
-        background = np.zeros((self.patternH, self.patternW), dtype=np.uint16)
-        if self.background != np.ndarray:
-          pass
-        else:
-          if self.background.size != np.int64(self.patternH * self.patternW):
-            pass
-          else:
-            background = self.background.astype(self.filedatatype)
-        background.tofile(f)
-
-
-    if writeBlank == True:
-      typewrite = self.filedatatype
-      dtyperead = np.dtype([('loc', np.uint32, (2)), ('pat', np.uint16, (self.patternH, self.patternW))])
-
-      f.seek(np.uint64(self.nPatterns * dtyperead.itemsize -1))
-      np.asarray(0, dtype=np.uint8).tofile(f)
-
-
-    f.close()
-
   def pat_writer(self, pat2write, patStart, nPatToWrite, typewrite=None, bitdepth=None):# not a real function yet.
 
     try:
-      f = open(Path(self.filepath).expanduser(), 'br+')
-      f.seek(0, 0)
+      with open(Path(self.filepath).expanduser(), 'br+') as f:
+        f.seek(0, 0)
+        if bitdepth is None:
+          bitdepth = self.bitdepth
+
+
+        maxval = np.uint64(2** np.uint64(bitdepth)-1)
+        typewrite = self.filedatatype
+        nPerPat = self.patternW * self.patternH
+        nPerPatByte = nPerPat * typewrite(0).nbytes + 8
+        patEnd = np.int64(patStart+nPatToWrite)
+        loc = np.array([np.arange(patStart, patEnd), np.arange(patStart, patEnd)], dtype = np.uint32).T
+
+        loc[:,0] = loc[:,0] % self.nCols
+        loc[:,1] = loc[:,1] // self.nCols
+
+        f.seek(np.uint64(self.filePos + patStart*nPerPatByte))
+        for i in range(nPatToWrite):
+            np.asarray(loc[i,:]).tofile(f)
+
+            onepat = pat_flt2int(pat2write[i:i+1, :, :],typeout=self.filedatatype,
+                                 method='clip',maxScale=maxval)
+            onepat.tofile(f)
     except:
       print("File Not Found:", str(Path(self.filepath)))
       return -1
-    if bitdepth is None:
-      bitdepth = self.bitdepth
-
-
-    maxval = np.uint64(2** np.uint64(bitdepth)-1)
-    typewrite = self.filedatatype
-    nPerPat = self.patternW * self.patternH
-    nPerPatByte = nPerPat * typewrite(0).nbytes + 8
-    patEnd = np.int64(patStart+nPatToWrite)
-    loc = np.array([np.arange(patStart, patEnd), np.arange(patStart, patEnd)], dtype = np.uint32).T
-
-    loc[:,0] = loc[:,0] % self.nCols
-    loc[:,1] = loc[:,1] // self.nCols
-
-    f.seek(np.uint64(self.filePos + patStart*nPerPatByte))
-    for i in range(nPatToWrite):
-        np.asarray(loc[i,:]).tofile(f)
-
-        onepat = pat_flt2int(pat2write[i:i+1, :, :],typeout=self.filedatatype,
-                             method='clip',maxScale=maxval)
-        onepat.tofile(f)
-    f.close()
     return 0
 
   def read_backgroundpattern(self):
@@ -1345,17 +1447,17 @@ class TFPatFile(EBSDPatternFile):
       print('No background pattern stored.')
       return -1
     try:
-      f = open(Path(self.filepath).expanduser(), 'rb')
+      with open(Path(self.filepath).expanduser(), 'rb') as f:
+        f.seek(25)
+        nPerPat = self.patternW * self.patternH
+        typeread = self.filedatatype
+        typebyte = self.filedatatype(0).nbytes
+        background = np.fromfile(f, dtype=typeread, count=np.int64(nPerPat))
+        background = background.reshape(self.patternH, self.patternW)
     except:
       print("File Not Found:", str(Path(self.filepath)))
       return -1
 
-    f.seek(25)
-    nPerPat = self.patternW * self.patternH
-    typeread = self.filedatatype
-    typebyte = self.filedatatype(0).nbytes
-    background = np.fromfile(f, dtype=typeread, count=np.int64(nPerPat))
-    background = background.reshape(self.patternH, self.patternW)
     return background # note multiple returns used in this function.
 
   def get_backgroundpattern(self):

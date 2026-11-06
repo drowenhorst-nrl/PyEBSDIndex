@@ -111,7 +111,9 @@ class OpenClParam():
     kernel_location = path.dirname(__file__)
     with warnings.catch_warnings():  # put in to supress OpenCL build warnings -- especially on NVIDIA platforms.
       warnings.simplefilter("ignore")
-      self.prg = cl.Program(self.ctx,open(path.join(kernel_location,kfile)).read()).build(options=['-cl-std=CL1.2', '-w'])
+      # FIX: Use context manager for file operations to prevent resource leaks
+      with open(path.join(kernel_location,kfile), 'r') as kernel_file:
+        self.prg = cl.Program(self.ctx, kernel_file.read()).build(options=['-cl-std=CL1.2', '-w'])
 
     kernels = self.prg.all_kernels()
     self.kernels = {}
